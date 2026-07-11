@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.panther/
+*.log
+.env
+.env.local

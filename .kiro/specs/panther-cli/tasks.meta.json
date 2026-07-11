@@ -1,0 +1,334 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "2.1 Implement config load and save": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758433080
+      }
+    ],
+    "3.1 Implement model download with progress and resume": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758434068
+      }
+    ],
+    "3.2 Implement `panther model switch <tier>` command": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758434283
+      }
+    ],
+    "4.1 Implement LocalProvider": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758434425
+      }
+    ],
+    "4.2 Create `src/inference/smoke.ts` manual test script": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758434579
+      }
+    ],
+    "5.1 Implement CLI entry point": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758434726
+      }
+    ],
+    "6. GitHub Actions CI": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758434878
+      }
+    ],
+    "7. Checkpoint — Phase 0 complete": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758435016
+      }
+    ],
+    "8.1 Define ToolExecutor interface": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758435166
+      }
+    ],
+    "8.2 Implement safe tools": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758435292
+      }
+    ],
+    "9.1 Implement risky tools": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758435465
+      }
+    ],
+    "10.1 Implement PermissionGate": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758435614
+      }
+    ],
+    "11.1 Implement core agent loop": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758435771
+      }
+    ],
+    "12. Checkpoint — Phase 1 complete": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758435948
+      }
+    ],
+    "13.1 Implement session manager": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758436063
+      }
+    ],
+    "14.1 Implement memory system": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758436216
+      }
+    ],
+    "15.1 Implement REPL components": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758436442
+      }
+    ],
+    "16.1 Implement branded banner": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758436614
+      }
+    ],
+    "17. Checkpoint — Phase 2 / Internal Alpha complete": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758436757
+      }
+    ],
+    "18.1 Implement vector store": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758436867
+      }
+    ],
+    "19.1 Implement file chunker": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758436994
+      }
+    ],
+    "20.1 Implement incremental project indexer": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758437113
+      }
+    ],
+    "21.1 Implement RAG retriever": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758437232
+      }
+    ],
+    "22. Checkpoint — Phase 3 / RAG complete": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758437360
+      }
+    ],
+    "23.1 Implement SpecWorkflow state machine": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758437464
+      }
+    ],
+    "24.1 Implement requirements generation": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758437593
+      }
+    ],
+    "25.1 Implement design generation": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758437736
+      }
+    ],
+    "25.2 Implement task list generation": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758437897
+      }
+    ],
+    "26.1 Implement spec execution": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758438046
+      }
+    ],
+    "27. Checkpoint — Phase 4 / Spec-driven workflow complete": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758438188
+      }
+    ],
+    "28.1 Implement skill discovery": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758438321
+      }
+    ],
+    "29.1 Implement lazy skill loader": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758438414
+      }
+    ],
+    "30.1 Implement skill tool registrar": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758438551
+      }
+    ],
+    "31. Checkpoint — Phase 5 / Skills complete": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758438709
+      }
+    ],
+    "32.1 Formalize ModelProvider interface": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758438836
+      }
+    ],
+    "33.1 Implement keychain credential store": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758439003
+      }
+    ],
+    "34.1 Implement OpenAI provider": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758439152
+      }
+    ],
+    "35.1 Implement Anthropic provider": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758439308
+      }
+    ],
+    "35.2 Implement Gemini provider": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758439449
+      }
+    ],
+    "36. Checkpoint — Phase 6 / BYOK complete": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758439585
+      }
+    ],
+    "37.1 Implement permission config command": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758439730
+      }
+    ],
+    "38.1 Implement first-run setup wizard": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758439893
+      }
+    ],
+    "39. Checkpoint — Phase 7 / Permissions and polish complete": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758440056
+      }
+    ],
+    "40. Cross-platform native addon verification and npm publish prep": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758440227
+      }
+    ],
+    "41. Nightly CI and release workflow": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758440374
+      }
+    ],
+    "42. Final checkpoint — Release ready": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758440480
+      }
+    ],
+    "1. Repo scaffold and TypeScript setup": [
+      {
+        "executionId": "8fad6c8a-dbcd-4ec4-b632-e18a02a03aa2",
+        "chatSessionId": "sess_0ecd8c04-fb35-4315-975d-a183aac87f3d",
+        "timestamp": 1783758478208
+      }
+    ]
+  }
+}
