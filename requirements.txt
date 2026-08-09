@@ -1,0 +1,10 @@
+rich>=13.6
+requests>=2.31
+python-dotenv>=1.0
+prompt_toolkit>=3.0.0
+chromadb>=0.5.0
+sentence-transformers>=3.0.0
+
+# Optional
+tiktoken>=0.7.0
+Pygments>=2.15

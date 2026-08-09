@@ -1,6 +1,26 @@
-node_modules/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
 dist/
+build/
+.venv/
+venv/
+
+# Panther local data
 .panther/
-*.log
+
+# Environment & secrets
 .env
 .env.local
+*.key
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

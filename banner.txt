@@ -1,0 +1,33 @@
+```python
+from rich.console import Console
+from rich.text import Text
+
+console = Console()
+
+ASCII_ROWS = [
+    "██████╗  █████╗ ███╗   ██╗████████╗██╗  ██╗███████╗██████╗    ██████╗ ██╗     ██╗     ▄▀  ▄▀  ▄▀ ",
+    "██╔══██╗██╔══██╗████╗  ██║╚══██╔══╝██║  ██║██╔════╝██╔══██╗  ██╔════╝ ██║     ██║    ▄▀  ▄▀  ▄▀  ",
+    "██████╔╝███████║██╔██╗ ██║   ██║   ███████║█████╗  ██████╔╝  ██║      ██║     ██║   ▐█▌ ▐█▌ ▐█▌  ",
+    "██╔═══╝ ██╔══██║██║╚██╗██║   ██║   ██╔══██║██╔══╝  ██╔══██╗  ██║      ██║     ██║   █▌  █▌  █▌   ",
+    "██║     ██║  ██║██║ ╚████║   ██║   ██║  ██║███████╗██║  ██║  ╚██████╗ ███████╗██║   ▀   ▀   ▀    ",
+    "╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝   ╚═════╝ ╚══════╝╚═╝                ",
+]
+
+GRADIENT_START = {"r": 230, "g": 115, "b": 0}
+GRADIENT_END = {"r": 220, "g": 20, "b": 20}
+
+def print_banner(version="1.0.0b0"):
+    console.print("")
+    num_rows = len(ASCII_ROWS)
+    for index, row in enumerate(ASCII_ROWS):
+        factor = index / (num_rows - 1)
+        r = round(GRADIENT_START["r"] + factor * (GRADIENT_END["r"] - GRADIENT_START["r"]))
+        g = round(GRADIENT_START["g"] + factor * (GRADIENT_END["g"] - GRADIENT_START["g"]))
+        b = round(GRADIENT_START["b"] + factor * (GRADIENT_END["b"] - GRADIENT_START["b"]))
+        
+        console.print(Text(row, style=f"bold rgb({r},{g},{b})"))
+    
+    console.print(f"  ── v{version} ──  Coding Agent Terminal | NVIDIA ● ──\n")
+
+print_banner()
+```
