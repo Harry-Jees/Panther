@@ -1,5 +1,9 @@
 # Implementation Plan: Panther CLI
 
+> **Superseded task plan:** These tasks target the former TypeScript/npm
+> application and should not be executed. Current Python implementation status
+> and next steps are in `04-implementation-doc.md`.
+
 ## Overview
 
 This plan builds Panther in eight phases, each ending at a testable milestone. Phases 0–2 form the internal alpha (a local agent that can do a supervised bug fix across sessions). Phases 3–8 layer in RAG, spec-driven workflow, skills, BYOK providers, permissions polish, and release packaging.

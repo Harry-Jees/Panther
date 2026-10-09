@@ -1,5 +1,11 @@
 # Requirements Document
 
+> **Superseded implementation plan:** This document describes the former
+> TypeScript/npm runtime. The active application is Python-only; use
+> `03-tech-stack.md` and `04-implementation-doc.md` for current implementation
+> details. Retained here for product-history context, not as an implementation
+> checklist.
+
 ## Introduction
 
 Panther is a self-contained, spec-driven local coding agent. A developer runs one install command and gets a fully offline AI coding assistant that plans before it codes, remembers project context across sessions, and never requires a separate model server or cloud account. Panther runs AI model inference in-process via `node-llama-cpp` bindings, ships as a single npm package, and supports an optional bring-your-own-key (BYOK) mode for remote providers as an opt-in escape hatch.

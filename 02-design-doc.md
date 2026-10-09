@@ -143,7 +143,7 @@ interface ModelProvider {
 }
 ```
 
-- **LocalProvider**: wraps the `node-llama-cpp` binding, defaults to a Qwen coding-model GGUF. Supports grammar-constrained tool calling natively.
+- **LocalProvider**: the Python runtime optionally wraps `llama-cpp-python` and defaults to a Qwen coding-model GGUF. Grammar-constrained tool calling is not yet implemented in the Python runtime.
 - **RemoteProvider**: one implementation per API shape — OpenAI-compatible (covers OpenAI, NVIDIA NIM, and most third-party endpoints), Anthropic Messages API, Google Gemini API. Tool calling uses each provider's native function-calling format instead of GBNF, normalized back into the same internal `ToolCall` shape the agent loop expects.
 - **Provider selection**: set per-session (`panther run --model gpt-4o-mini`) or as a project/global default in config. Falls back to the local provider if no key is configured for the requested remote provider, with a clear error rather than a silent failure.
 - **API key storage**: OS-native secure credential storage (`cross-keychain`, which wraps `@napi-rs/keyring` with a CLI fallback), never plaintext in `.panther/config.json`. Config stores only *which* provider is active and a reference to the stored credential, not the key itself. `keytar` is deprecated and should not be used.

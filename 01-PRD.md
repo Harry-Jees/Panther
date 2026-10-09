@@ -62,7 +62,7 @@ Nobody currently ships a **single self-contained binary** that does spec-driven 
 
 ## 7. Success metrics
 
-- Time from `npm install` to first successful agent-completed task (target: under 10 minutes including model download on typical broadband).
+- Time from `pip install "panther-cli[local]"` to first successful agent-completed task (target: under 10 minutes including model download on typical broadband).
 - % of tasks completed without the user needing to manually intervene outside the approved permission flow.
 - Weekly active CLI sessions per installed user (retention proxy).
 - Skill adoption: % of active users who have installed at least one community/custom skill.

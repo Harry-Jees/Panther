@@ -1,5 +1,11 @@
 # Design Document — Panther CLI
 
+> **Superseded implementation plan:** This document describes the former
+> TypeScript/npm runtime. The active application is Python-only; use
+> `03-tech-stack.md` and `04-implementation-doc.md` for current implementation
+> details. Retained here for product-history context, not as an implementation
+> checklist.
+
 ## Overview
 
 Panther is a self-contained, spec-driven local coding agent distributed as a single npm package. The entire inference stack runs in-process via `node-llama-cpp` bindings — no external server, daemon, or cloud account required. The system is structured around a central agent loop that calls discrete tool executors, wired through a permission gate, and fed context from an in-process RAG index. An optional BYOK layer allows the local model to be swapped for a remote API provider at the session level, all behind a common `ModelProvider` interface.

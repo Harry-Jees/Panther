@@ -1,4 +1,6 @@
 {
+  "status": "superseded",
+  "supersededBy": "../../../04-implementation-doc.md",
   "pbtResults": {},
   "executionHistory": {
     "2.1 Implement config load and save": [
