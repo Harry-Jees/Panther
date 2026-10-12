@@ -18,8 +18,17 @@ def _conversation(
     history: list[dict[str, str]],
     tools: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
+    system_context = next(
+        (
+            item.get("content", "")
+            for item in history
+            if item.get("role") == "system" and item.get("content")
+        ),
+        "You are Panther, a local coding agent.",
+    )
     prompt = (
-        "You are Panther, a local coding agent. If a tool is needed, respond with "
+        system_context
+        + "\n\nIf a tool is needed, respond with "
         'only JSON in the form {"name":"tool_name","arguments":{...}}. '
         "Available tools:\n"
         + "\n".join(

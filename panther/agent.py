@@ -9,6 +9,19 @@ from .permissions import check_permission
 from .tools import TOOLS
 
 
+SYSTEM_PROMPT = """You are Panther, a helpful local-first coding assistant.
+
+Panther was created by Harry Jees.
+
+Accuracy rules:
+- Do not hallucinate. Never invent facts, capabilities, tool results, file contents, actions, citations, or project details.
+- Ground claims in the conversation, repository files, tool results, or other evidence actually available to you.
+- If information is missing or uncertain, say so clearly and ask the user for clarification instead of guessing.
+- Do not claim that an action succeeded unless a tool result confirms it.
+- When the user asks for a preference or product detail that has not been provided, ask them rather than choosing silently.
+"""
+
+
 def _parse_tool_call(text: str) -> tuple[str, dict[str, Any]] | None:
     candidates = [text.strip()]
     match = re.search(r"<function=(\w+)>([\s\S]*?)</function>", text)
@@ -39,10 +52,16 @@ def run_agent(
     one_shot: bool = True,
     approve: Callable[[str, dict[str, Any]], bool] | None = None,
     on_response: Callable[[str], None] | None = None,
+    on_status: Callable[[str], None] | None = None,
     max_iterations: int = 50,
 ) -> str:
+    system_message = {"role": "system", "content": SYSTEM_PROMPT}
     if not history:
-        history.append({"role": "system", "content": "You are Panther, a helpful local coding assistant."})
+        history.append(system_message)
+    elif history[0].get("role") == "system":
+        history[0] = system_message
+    else:
+        history.insert(0, system_message)
     history.append({"role": "user", "content": task})
     tool_schemas = [
         {
@@ -53,7 +72,9 @@ def run_agent(
         for tool in TOOLS
     ]
 
-    for _ in range(max_iterations):
+    for iteration in range(max_iterations):
+        if on_status:
+            on_status("thinking" if iteration == 0 else "continuing")
         response = provider.generate(history, tool_schemas)
         if on_response:
             on_response(response)
@@ -71,6 +92,8 @@ def run_agent(
 
         decision = check_permission(tool.risk_level, permission_mode, one_shot=one_shot)
         if decision == "needs_prompt":
+            if on_status:
+                on_status("waiting for permission")
             decision = "approved" if approve and approve(tool_name, arguments) else "denied"
         if decision == "denied":
             result = {"success": False, "error": "Tool denied by permission mode or user."}

@@ -6,13 +6,14 @@ import json
 import os
 import shutil
 import sys
+import threading
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Sequence
 
 from dotenv import dotenv_values
 
-from .agent import run_agent
+from .agent import _parse_tool_call, run_agent
 from .config import config_path, load_config, panther_dir, save_config
 from .model_manager import context_window, ensure_model, list_models, switch_model
 from .provider import (
@@ -26,6 +27,11 @@ from .tools import IGNORED_PARTS
 
 
 ANSI_RESET = "\033[0m"
+ANSI_BOLD = "\033[1m"
+ANSI_ORANGE = "\033[38;5;208m"
+ANSI_BLUE = "\033[38;5;81m"
+ANSI_GREEN = "\033[38;5;114m"
+ANSI_RED = "\033[38;5;203m"
 COLOR_START = (255, 45, 37)
 COLOR_END = (255, 165, 45)
 PANTHER_CLI_LOGO_LINES = [
@@ -41,6 +47,67 @@ _ASCII_LOGO_LINES = ["PANTHER CLI"]
 
 def _supports_truecolor() -> bool:
     return sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+
+
+def _paint(text: str, color: str, *, bold: bool = False) -> str:
+    if not _supports_truecolor():
+        return text
+    prefix = ANSI_BOLD if bold else ""
+    return f"{prefix}{color}{text}{ANSI_RESET}"
+
+
+class _ActivityIndicator:
+    """Small terminal spinner used only while a model request is in flight."""
+
+    _frames = (".", "..", "...", "....")
+
+    def __init__(self) -> None:
+        self.enabled = sys.stderr.isatty() and os.environ.get("NO_COLOR") is None
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._message = "thinking"
+        self._lock = threading.Lock()
+
+    def update(self, message: str) -> None:
+        with self._lock:
+            self._message = message
+        if not self.enabled:
+            return
+        if self._thread is None or not self._thread.is_alive():
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+
+    def _run(self) -> None:
+        frame = 0
+        while not self._stop.wait(0.12):
+            with self._lock:
+                message = self._message
+            text = f"  Panther {message}{self._frames[frame % len(self._frames)]}"
+            sys.stderr.write(f"\r\033[2K{_paint(text, ANSI_ORANGE)}")
+            sys.stderr.flush()
+            frame += 1
+
+    def stop(self) -> None:
+        if not self.enabled:
+            return
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=0.5)
+        sys.stderr.write("\r\033[2K")
+        sys.stderr.flush()
+
+
+def _print_message(label: str, text: str, color: str) -> None:
+    print(_paint(f"[{label}]", color, bold=True))
+    for line in text.rstrip().splitlines() or [""]:
+        print(f"  {line}")
+    print()
+
+
+def _permission_summary(arguments: dict[str, Any]) -> str:
+    rendered = json.dumps(arguments, ensure_ascii=False, sort_keys=True)
+    return rendered if len(rendered) <= 240 else rendered[:237] + "..."
 
 
 def _apply_gradient(text: str) -> str:
@@ -167,22 +234,44 @@ def _run_with_provider(
     json_output: bool,
     one_shot: bool,
 ) -> str:
+    spinner = _ActivityIndicator()
+
     def approve(tool_name: str, arguments: dict[str, Any]) -> bool:
         if json_output:
             return False
-        answer = input(f"\nAllow {tool_name}({json.dumps(arguments)})? [y/N] ")
+        spinner.stop()
+        print()
+        print(_paint("[PERMISSION REQUEST]", ANSI_RED, bold=True))
+        print(f"  Tool: {_paint(tool_name, ANSI_ORANGE, bold=True)}")
+        print(f"  Args: {_permission_summary(arguments)}")
+        answer = input("  Allow this action? [y/N]: ")
         return answer.strip().lower() == "y"
 
-    result = run_agent(
-        task,
-        provider,
-        session["history"],
-        project_root,
-        config["permissionMode"],
-        one_shot=one_shot,
-        approve=approve,
-        on_response=None if json_output else lambda text: print(text, end="", flush=True),
-    )
+    def render_response(text: str) -> None:
+        spinner.stop()
+        if _parse_tool_call(text) is None:
+            _print_message("PANTHER", text, ANSI_ORANGE)
+
+    def show_status(message: str) -> None:
+        spinner.update(message)
+
+    if not json_output:
+        _print_message("YOU", task, ANSI_BLUE)
+
+    try:
+        result = run_agent(
+            task,
+            provider,
+            session["history"],
+            project_root,
+            config["permissionMode"],
+            one_shot=one_shot,
+            approve=approve,
+            on_response=None if json_output else render_response,
+            on_status=None if json_output else show_status,
+        )
+    finally:
+        spinner.stop()
     _manager(project_root).save(session)
     return result
 
