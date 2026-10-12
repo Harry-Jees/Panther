@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
+from email.message import Message
+from argparse import Namespace
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from panther.agent import run_agent
+from panther.cli import _auth_command, _nvidia_api_key, _nvidia_provider
 from panther.config import load_config, save_config
 from panther.permissions import check_permission
+from panther.provider import NvidiaProvider
 from panther.session import SessionManager
 from panther.tools import TOOLS, apply_diff, read_file, write_file
 
@@ -19,6 +26,20 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ConfigTests(unittest.TestCase):
+    def test_nvidia_provider_and_model_can_be_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            save_config(
+                {
+                    "activeProvider": "nvidia",
+                    "remoteModel": "nvidia/test-model",
+                },
+                root,
+            )
+            config = load_config(root)
+        self.assertEqual(config["activeProvider"], "nvidia")
+        self.assertEqual(config["remoteModel"], "nvidia/test-model")
+
     def test_project_config_overrides_global_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -40,6 +61,29 @@ class ConfigTests(unittest.TestCase):
             with patch.dict(os.environ, {"PANTHER_CONFIG_PATH": str(config)}):
                 with self.assertRaisesRegex(ValueError, "Could not load config"):
                     load_config()
+
+
+class AuthTests(unittest.TestCase):
+    def test_add_stores_key_in_keyring_and_activates_nvidia(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            keyring = SimpleNamespace(set_password=Mock())
+            with patch("panther.cli.import_module", return_value=keyring), patch(
+                "panther.cli.getpass.getpass", return_value="test-secret"
+            ) as getpass:
+                self.assertEqual(
+                    _auth_command(Namespace(action="add"), root),
+                    0,
+                )
+            getpass.assert_called_once()
+            keyring.set_password.assert_called_once_with(
+                "panther-cli",
+                "nvidia",
+                "test-secret",
+            )
+            config_path = root / ".panther" / "config.json"
+            self.assertNotIn("test-secret", config_path.read_text(encoding="utf-8"))
+            self.assertEqual(load_config(root)["activeProvider"], "nvidia")
 
 
 class PermissionTests(unittest.TestCase):
@@ -198,14 +242,113 @@ class AgentTests(unittest.TestCase):
             self.assertEqual(answer, "The file was written.")
 
 
+class NvidiaProviderTests(unittest.TestCase):
+    def test_project_env_reads_nvidia_key_without_exporting_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".env").write_text(
+                "NVIDIA_API_KEY=project-secret\n",
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(_nvidia_api_key(root), "project-secret")
+                self.assertNotIn("NVIDIA_API_KEY", os.environ)
+            with patch.dict(os.environ, {"NVIDIA_API_KEY": "shell-secret"}):
+                self.assertEqual(_nvidia_api_key(root), "shell-secret")
+
+    def test_project_env_key_is_passed_to_nvidia_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".env").write_text(
+                "NVIDIA_API_KEY=project-secret\n",
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {}, clear=True), patch(
+                "panther.cli.NvidiaProvider"
+            ) as provider_class:
+                _nvidia_provider("nvidia/test-model", root)
+        provider_class.assert_called_once_with(
+            "nvidia/test-model",
+            api_key="project-secret",
+        )
+
+    def test_generate_uses_environment_key_without_keyring(self) -> None:
+        response = io.BytesIO(
+            b'{"choices":[{"message":{"content":"Hello"}}]}'
+        )
+        with patch.dict(os.environ, {"NVIDIA_API_KEY": "env-secret"}), patch(
+            "panther.provider.import_module",
+            side_effect=AssertionError("keyring should not be accessed"),
+        ), patch(
+            "panther.provider.urllib.request.urlopen",
+            return_value=response,
+        ) as urlopen:
+            provider = NvidiaProvider("nvidia/test-model")
+            answer = provider.generate([{"role": "user", "content": "Hi"}], [])
+        self.assertEqual(answer, "Hello")
+        self.assertEqual(
+            urlopen.call_args.args[0].get_header("Authorization"),
+            "Bearer env-secret",
+        )
+
+    def test_generate_uses_keyring_credential_and_nvidia_api(self) -> None:
+        keyring = SimpleNamespace(get_password=Mock(return_value="test-secret"))
+        response = io.BytesIO(
+            b'{"choices":[{"message":{"content":"Hello"}}]}'
+        )
+        with patch.dict(sys.modules, {"keyring": keyring}), patch(
+            "panther.provider.urllib.request.urlopen", return_value=response
+        ) as urlopen:
+            provider = NvidiaProvider("nvidia/test-model")
+            answer = provider.generate([{"role": "user", "content": "Hi"}], [])
+        self.assertEqual(answer, "Hello")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-secret")
+        payload = json.loads(request.data)
+        self.assertEqual(payload["model"], "nvidia/test-model")
+        self.assertEqual(payload["messages"][-1]["content"], "Hi")
+
+    def test_account_specific_404_explains_model_access_issue(self) -> None:
+        error = urllib.error.HTTPError(
+            "https://integrate.api.nvidia.com/v1/chat/completions",
+            404,
+            "Not Found",
+            Message(),
+            io.BytesIO(b'{"detail":"Function not found for account"}'),
+        )
+        with patch.dict(os.environ, {"NVIDIA_API_KEY": "test-secret"}), patch(
+            "panther.provider.urllib.request.urlopen",
+            side_effect=error,
+        ):
+            provider = NvidiaProvider("nvidia/test-model")
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "not available to this API account",
+            ):
+                provider.generate([{"role": "user", "content": "Hi"}], [])
+
+
 class CLITests(unittest.TestCase):
-    def run_cli(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    def run_cli(
+        self,
+        *args: str,
+        env: dict[str, str] | None = None,
+        cwd: Path = REPO_ROOT,
+        module: str = "panther.cli",
+    ) -> subprocess.CompletedProcess[str]:
         command_env = os.environ.copy()
+        project_path = str(REPO_ROOT)
+        existing_pythonpath = command_env.get("PYTHONPATH")
+        command_env["PYTHONPATH"] = (
+            os.pathsep.join((project_path, existing_pythonpath))
+            if existing_pythonpath
+            else project_path
+        )
         if env:
             command_env.update(env)
         return subprocess.run(
-            [sys.executable, "-m", "panther.cli", *args],
-            cwd=REPO_ROOT,
+            [sys.executable, "-m", module, *args],
+            cwd=cwd,
             capture_output=True,
             text=True,
             env=command_env,
@@ -219,10 +362,17 @@ class CLITests(unittest.TestCase):
         version_result = self.run_cli("--version")
         self.assertEqual(version_result.returncode, 0)
         self.assertIn("0.1.0", version_result.stdout)
+        module_help = self.run_cli("--help", module="panther")
+        self.assertEqual(module_help.returncode, 0, module_help.stderr)
+        self.assertIn("run", module_help.stdout)
 
     def test_config_command_creates_default_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            result = self.run_cli("config", env={"PANTHER_HOME": temp})
+            result = self.run_cli(
+                "config",
+                env={"PANTHER_HOME": temp},
+                cwd=Path(temp),
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout)["activeProvider"], "local")
             self.assertTrue((Path(temp) / "config.json").exists())
@@ -243,6 +393,7 @@ class CLITests(unittest.TestCase):
                 "--json",
                 "Explain this project",
                 env={"PANTHER_HOME": temp},
+                cwd=Path(temp),
             )
         self.assertEqual(result.returncode, 1)
         records = [json.loads(line) for line in result.stdout.splitlines()]

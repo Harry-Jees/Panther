@@ -2,7 +2,7 @@
 
 > **Superseded task plan:** These tasks target the former TypeScript/npm
 > application and should not be executed. Current Python implementation status
-> and next steps are in `04-implementation-doc.md`.
+> and next steps are in `../../../.guide/04-implementation-doc.md`.
 
 ## Overview
 

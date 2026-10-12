@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Panther" }]
 license = { text = "ISC" }
-dependencies = []
+dependencies = ["keyring>=25.0", "python-dotenv>=1.0"]
 
 [project.optional-dependencies]
 local = ["llama-cpp-python>=0.3.0"]

@@ -10,11 +10,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "modelTier": "small",
     "modelFamily": "qwen",
     "activeProvider": "local",
+    # NVIDIA advertises this fast agent-focused model as a free endpoint.
+    # Users can override it with `panther config --model`.
+    "remoteModel": "nvidia/nemotron-3.5-lightning-30b-a3b",
     "telemetryOptIn": False,
 }
 PERMISSION_MODES = {"always_ask", "ask_when_risky", "never_ask"}
 MODEL_TIERS = {"small", "large"}
-PROVIDERS = {"local"}
+PROVIDERS = {"local", "nvidia"}
 
 
 def panther_dir() -> Path:
@@ -53,8 +56,10 @@ def validate_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Unknown model tier: {merged['modelTier']}")
     if merged["activeProvider"] not in PROVIDERS:
         raise ValueError(
-            "Only the local provider is available in the Python runtime."
+            f"Unknown provider: {merged['activeProvider']}"
         )
+    if not isinstance(merged["remoteModel"], str) or not merged["remoteModel"].strip():
+        raise ValueError("remoteModel must be a non-empty string")
     if not isinstance(merged["telemetryOptIn"], bool):
         raise ValueError("telemetryOptIn must be a boolean")
     return merged

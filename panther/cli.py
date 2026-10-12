@@ -1,17 +1,83 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
+import os
+import shutil
 import sys
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Sequence
+
+from dotenv import dotenv_values
 
 from .agent import run_agent
 from .config import config_path, load_config, panther_dir, save_config
 from .model_manager import context_window, ensure_model, list_models, switch_model
-from .provider import LocalProvider
+from .provider import (
+    NVIDIA_KEYRING_SERVICE,
+    NVIDIA_KEYRING_USERNAME,
+    LocalProvider,
+    NvidiaProvider,
+)
 from .session import SessionManager
 from .tools import IGNORED_PARTS
+
+
+ANSI_RESET = "\033[0m"
+COLOR_START = (255, 45, 37)
+COLOR_END = (255, 165, 45)
+PANTHER_CLI_LOGO_LINES = [
+    r"██████╗  █████╗ ███╗   ██╗████████╗██╗  ██╗███████╗██████╗      ██████╗██╗     ██╗",
+    r"██╔══██╗██╔══██╗████╗  ██║╚══██╔══╝██║  ██║██╔════╝██╔══██╗    ██╔════╝██║     ██║",
+    r"██████╔╝███████║██╔██╗ ██║   ██║   ███████║█████╗  ██████╔╝    ██║     ██║     ██║",
+    r"██╔═══╝ ██╔══██║██║╚██╗██║   ██║   ██╔══██║██╔══╝  ██╔══██╗    ██║     ██║     ██║",
+    r"██║     ██║  ██║██║ ╚████║   ██║   ██║  ██║███████╗██║  ██║    ╚██████╗███████╗██║",
+    r"╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝     ╚═════╝╚══════╝╚═╝",
+]
+_ASCII_LOGO_LINES = ["PANTHER CLI"]
+
+
+def _supports_truecolor() -> bool:
+    return sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+
+
+def _apply_gradient(text: str) -> str:
+    if not _supports_truecolor():
+        return text
+    count = max(len(text) - 1, 1)
+    rendered: list[str] = []
+    for index, character in enumerate(text):
+        ratio = index / count
+        red = int(COLOR_START[0] + (COLOR_END[0] - COLOR_START[0]) * ratio)
+        green = int(COLOR_START[1] + (COLOR_END[1] - COLOR_START[1]) * ratio)
+        blue = int(COLOR_START[2] + (COLOR_END[2] - COLOR_START[2]) * ratio)
+        rendered.append(f"\033[38;2;{red};{green};{blue}m{character}")
+    return "".join(rendered) + ANSI_RESET
+
+
+def _print_banner(show_banner: bool = True) -> None:
+    """Print the interactive startup banner without polluting scripted output."""
+    if not show_banner:
+        return
+    encoding = sys.stdout.encoding or "utf-8"
+    try:
+        unicode_logo = all(
+            line.encode(encoding, errors="strict") for line in PANTHER_CLI_LOGO_LINES
+        )
+    except UnicodeEncodeError:
+        unicode_logo = False
+    logo_lines = PANTHER_CLI_LOGO_LINES if unicode_logo else _ASCII_LOGO_LINES
+    for line in logo_lines:
+        print(_apply_gradient(line))
+    print(_apply_gradient("  Intelligent Execution. Relentless Precision."))
+    width = shutil.get_terminal_size((80, 24)).columns
+    divider = "─" if unicode_logo else "-"
+    divider_length = min(max(width - 4, 30), 60)
+    print(f"  {divider * divider_length}{ANSI_RESET if _supports_truecolor() else ''}")
+    print("  Panther Engine - Ready")
+    print("  Type 'help' to explore.\n")
 
 
 def _repository_files(root: Path) -> list[Path]:
@@ -59,6 +125,19 @@ def _write_json(value: dict[str, Any]) -> None:
     print(json.dumps(value, ensure_ascii=False))
 
 
+def _nvidia_api_key(project_root: Path) -> str | None:
+    api_key = os.environ.get("NVIDIA_API_KEY")
+    if api_key and api_key.strip():
+        return api_key
+    values = dotenv_values(project_root / ".env")
+    api_key = values.get("NVIDIA_API_KEY")
+    return api_key if isinstance(api_key, str) else None
+
+
+def _nvidia_provider(model: str, project_root: Path) -> NvidiaProvider:
+    return NvidiaProvider(model, api_key=_nvidia_api_key(project_root))
+
+
 def _progress(downloaded: int, total: int) -> None:
     percent = min(round(downloaded * 100 / total), 100) if total else 0
     size = f"{downloaded / 1_048_576:.1f} MB"
@@ -83,7 +162,7 @@ def _run_with_provider(
     project_root: Path,
     session: dict[str, Any],
     config: dict[str, Any],
-    provider: LocalProvider,
+    provider: LocalProvider | NvidiaProvider,
     *,
     json_output: bool,
     one_shot: bool,
@@ -117,17 +196,19 @@ def _execute_task(
     json_output: bool,
     one_shot: bool = True,
 ) -> str:
-    if config["activeProvider"] != "local":
-        raise ValueError("The Python runtime currently supports local inference only.")
-    if not json_output:
-        print("Checking for local model...", file=sys.stderr)
-    model_file = ensure_model(config["modelTier"], None if json_output else _progress)
-    if not json_output:
-        print("\nLoading local model...", file=sys.stderr)
-    provider = LocalProvider(
-        str(model_file),
-        context_window(config["modelTier"]),
-    )
+    if config["activeProvider"] == "local":
+        if not json_output:
+            print("Checking for local model...", file=sys.stderr)
+        model_file = ensure_model(config["modelTier"], None if json_output else _progress)
+        if not json_output:
+            print("\nLoading local model...", file=sys.stderr)
+        provider: LocalProvider | NvidiaProvider = LocalProvider(
+            str(model_file), context_window(config["modelTier"])
+        )
+    else:
+        if not json_output:
+            print("Connecting to NVIDIA...", file=sys.stderr)
+        provider = _nvidia_provider(config["remoteModel"], project_root)
     try:
         return _run_with_provider(
             task,
@@ -139,7 +220,9 @@ def _execute_task(
             one_shot=one_shot,
         )
     finally:
-        provider.close()
+        close = getattr(provider, "close", None)
+        if callable(close):
+            close()
 
 
 def _add_commands(parser: argparse.ArgumentParser) -> None:
@@ -156,6 +239,13 @@ def _add_commands(parser: argparse.ArgumentParser) -> None:
     subparsers.add_parser("config", help="Show or update Panther configuration").add_argument(
         "--permissions", action="store_true", help="Set the permission mode"
     )
+    config_parser = subparsers.choices["config"]
+    config_parser.add_argument(
+        "--provider", choices=["local", "nvidia"], help="Set the active model provider"
+    )
+    config_parser.add_argument(
+        "--model", help="Set the NVIDIA model ID used for remote requests"
+    )
     subparsers.add_parser("model", help="Manage local model downloads").add_argument(
         "action", choices=["list", "switch"]
     )
@@ -171,6 +261,13 @@ def _add_commands(parser: argparse.ArgumentParser) -> None:
         "--path", default=".", help="Project root"
     )
     subparsers.add_parser("skills", help="List discovered SKILL.md files")
+    auth_parser = subparsers.add_parser("auth", help="Manage provider credentials")
+    auth_parser.add_argument("action", choices=["add", "remove", "status"])
+    auth_parser.add_argument("provider", choices=["nvidia"])
+    nvidia_parser = subparsers.add_parser(
+        "nvidia", help="Inspect NVIDIA API access"
+    )
+    nvidia_parser.add_argument("action", choices=["models"])
 
 
 def _run_command(args: argparse.Namespace, root: Path) -> int:
@@ -201,16 +298,74 @@ def _run_command(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
-def _repl(root: Path, session_id: str | None = None) -> int:
+def _auth_command(args: argparse.Namespace, root: Path) -> int:
+    try:
+        keyring = import_module("keyring")
+    except ImportError as exc:
+        raise RuntimeError(
+            "Credential storage requires Panther's keyring dependency. "
+            "Reinstall Panther with `python -m pip install --upgrade panther-cli`."
+        ) from exc
+    if args.action == "add":
+        api_key = getpass.getpass("NVIDIA API key (input hidden): ").strip()
+        if not api_key:
+            raise ValueError("NVIDIA API key cannot be empty.")
+        try:
+            keyring.set_password(
+                NVIDIA_KEYRING_SERVICE,
+                NVIDIA_KEYRING_USERNAME,
+                api_key,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not save NVIDIA credentials to the OS keyring: {exc}"
+            ) from exc
+        config = load_config(root)
+        config["activeProvider"] = "nvidia"
+        save_config(config, root)
+        print("NVIDIA credentials saved to the OS keyring; NVIDIA is now active.")
+        return 0
+    if args.action == "remove":
+        try:
+            keyring.delete_password(
+                NVIDIA_KEYRING_SERVICE,
+                NVIDIA_KEYRING_USERNAME,
+            )
+        except keyring.errors.PasswordDeleteError:
+            print("No NVIDIA credentials were stored.")
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not remove NVIDIA credentials from the OS keyring: {exc}"
+            ) from exc
+        config = load_config(root)
+        if config["activeProvider"] == "nvidia" and not _nvidia_api_key(root):
+            config["activeProvider"] = "local"
+            save_config(config, root)
+        print("NVIDIA keyring credentials removed.")
+        return 0
+    stored = _nvidia_api_key(root) or keyring.get_password(
+        NVIDIA_KEYRING_SERVICE, NVIDIA_KEYRING_USERNAME
+    )
+    print("NVIDIA API key: configured" if stored else "NVIDIA API key: not configured")
+    return 0
+
+
+def _repl(
+    root: Path,
+    session_id: str | None = None,
+    *,
+    show_banner: bool = True,
+) -> int:
     config = load_config(root)
     manager = _manager(root)
     session = _get_session(manager, session_id)
+    _print_banner(show_banner=show_banner)
     print(f"Panther session {session['id']} (type 'exit' to quit)")
-    provider: LocalProvider | None = None
+    provider: LocalProvider | NvidiaProvider | None = None
     try:
         while True:
             try:
-                task = input("🐾 ").strip()
+                task = input("panther> ").strip()
             except (EOFError, KeyboardInterrupt):
                 print()
                 return 0
@@ -220,11 +375,14 @@ def _repl(root: Path, session_id: str | None = None) -> int:
                 continue
             try:
                 if provider is None:
-                    model_file = ensure_model(config["modelTier"], _progress)
-                    provider = LocalProvider(
-                        str(model_file),
-                        context_window(config["modelTier"]),
-                    )
+                    if config["activeProvider"] == "local":
+                        model_file = ensure_model(config["modelTier"], _progress)
+                        provider = LocalProvider(
+                            str(model_file),
+                            context_window(config["modelTier"]),
+                        )
+                    else:
+                        provider = _nvidia_provider(config["remoteModel"], root)
                 _run_with_provider(
                     task,
                     root,
@@ -239,7 +397,9 @@ def _repl(root: Path, session_id: str | None = None) -> int:
                 print(f"\nPanther error: {exc}", file=sys.stderr)
     finally:
         if provider is not None:
-            provider.close()
+            close = getattr(provider, "close", None)
+            if callable(close):
+                close()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -248,12 +408,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="A local-first coding agent powered by Python.",
     )
     parser.add_argument("--version", action="version", version="panther-cli 0.1.0")
+    parser.add_argument(
+        "--no-banner", action="store_true", help="Hide the interactive startup banner"
+    )
     _add_commands(parser)
     args = parser.parse_args(argv)
     root = Path.cwd().resolve()
     try:
         if args.command is None:
-            return _repl(root)
+            return _repl(root, show_banner=not args.no_banner)
         if args.command == "run":
             return _run_command(args, root)
         if args.command == "analyze":
@@ -268,10 +431,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if selection:
                     config["permissionMode"] = selection
                     print(f"Saved: {save_config(config, root)}")
+            elif args.provider:
+                config["activeProvider"] = args.provider
+                print(f"Saved: {save_config(config, root)}")
+            elif args.model:
+                config["remoteModel"] = args.model
+                print(f"Saved: {save_config(config, root)}")
             else:
                 if not config_path().exists():
                     save_config(config)
                 print(json.dumps(config, indent=2))
+            return 0
+        if args.command == "auth":
+            return _auth_command(args, root)
+        if args.command == "nvidia":
+            provider = _nvidia_provider(load_config(root)["remoteModel"], root)
+            for model in provider.list_models():
+                print(model)
             return 0
         if args.command == "model":
             if args.action == "list":

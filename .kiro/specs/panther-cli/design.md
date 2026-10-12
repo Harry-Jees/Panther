@@ -2,7 +2,8 @@
 
 > **Superseded implementation plan:** This document describes the former
 > TypeScript/npm runtime. The active application is Python-only; use
-> `03-tech-stack.md` and `04-implementation-doc.md` for current implementation
+> `../../../.guide/03-tech-stack.md` and
+> `../../../.guide/04-implementation-doc.md` for current implementation
 > details. Retained here for product-history context, not as an implementation
 > checklist.
 
