@@ -213,12 +213,15 @@ class _BottomPrompt:
                 )
             return Point(x=0, y=offset)
 
+        user = self.config.get("userName", "")
+        user_part = f" {user}  │" if user else ""
         toolbar = FormattedTextControl(
             text=lambda: (
-                f" {self.config['activeBot'] or _active_provider(self.config)} "
-                f"({_active_provider(self.config)})  |  "
+                f"{user_part}  {self.config['activeBot'] or _active_provider(self.config)}"
+                f"  │  "
                 f"{_active_model(self.config, code_mode=False, image_content=None)}"
-                f"  |  {self.project_root.name}  |  Enter: send  Ctrl+J: newline  PgUp/PgDn: history"
+                f"  │  {self.project_root.name}"
+                f"  │  Enter: send  Ctrl+J: newline  /help: commands"
             )
         )
         transcript = Window(
@@ -1066,10 +1069,11 @@ def _apply_gradient(text: str) -> str:
     return "".join(rendered) + ANSI_RESET
 
 
-def _print_banner(show_banner: bool = True) -> None:
+def _print_banner(show_banner: bool = True, config: dict | None = None) -> None:
     """Print the interactive startup banner without polluting scripted output."""
     if not show_banner:
         return
+    _clear_terminal()
     width = max(1, shutil.get_terminal_size((80, 24)).columns)
     encoding = sys.stdout.encoding or "utf-8"
     try:
@@ -1093,14 +1097,29 @@ def _print_banner(show_banner: bool = True) -> None:
     divider = "─" if unicode_logo else "-"
     divider_length = max(1, min(width - len(indent), 60))
     print(f"{indent}{divider * divider_length}{ANSI_RESET if _supports_truecolor() else ''}")
-    status = "Panther Engine - Ready"
-    help_text = "Type 'help' to explore."
-    if len(status) > available_width:
-        status = "Ready"
-    if len(help_text) > available_width:
-        help_text = "Type 'help'"
-    print(f"{indent}{status[:available_width]}")
-    print(f"{indent}{help_text[:available_width]}\n")
+    if width >= 50:
+        version_str = _paint("v0.1.0", ANSI_BLUE)
+        if config is not None:
+            provider_label = _active_provider(config)
+            if provider_label == "local":
+                provider_str = _paint("No provider configured", ANSI_ORANGE)
+            else:
+                provider_str = _paint(provider_label, ANSI_GREEN)
+        else:
+            provider_str = _paint("No provider configured", ANSI_ORANGE)
+        help_str = _paint("Type /help for commands", ANSI_BLUE)
+        sep = _paint("  │  ", ANSI_BLUE)
+        status_line = f"{indent}{version_str}{sep}{provider_str}{sep}{help_str}"
+        print(status_line + "\n")
+    else:
+        status = "Panther Engine - Ready"
+        help_text = "Type 'help' to explore."
+        if len(status) > available_width:
+            status = "Ready"
+        if len(help_text) > available_width:
+            help_text = "Type 'help'"
+        print(f"{indent}{status[:available_width]}")
+        print(f"{indent}{help_text[:available_width]}\n")
 
 
 def _repository_files(root: Path) -> list[Path]:
@@ -1379,6 +1398,207 @@ def _first_run_onboarding(config: dict[str, Any], project_root: Path) -> None:
     config["shareProfileWithNvidia"] = share_profile
     save_config(config)
     print("Setup complete. The NVIDIA key and profile are stored in the OS credential store.")
+
+
+def _needs_setup(config: dict[str, Any]) -> bool:
+    """Return True when no provider is reachable and onboarding has not been done."""
+    # Already onboarded
+    if config.get("onboardingComplete"):
+        return False
+    # A real provider is already configured
+    active = config.get("activeProvider", "local")
+    if active not in ("local", ""):
+        return False
+    # Env-var keys present — skip setup
+    if (
+        os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("OPENAI_COMPATIBLE_API_KEY")
+        or os.environ.get("NVIDIA_API_KEY")
+    ):
+        return False
+    # A named bot is configured
+    if config.get("activeBot"):
+        return False
+    # A keyring key is already stored for any known provider
+    try:
+        keyring = import_module("keyring")
+        for username in (
+            NVIDIA_KEYRING_USERNAME,
+            GEMINI_KEYRING_USERNAME,
+            OPENAI_COMPATIBLE_KEYRING_USERNAME,
+        ):
+            val = keyring.get_password(NVIDIA_KEYRING_SERVICE, username)
+            if val:
+                return False
+    except Exception:
+        pass
+    return True
+
+
+def _run_setup_survey(config: dict[str, Any], project_root: Path) -> None:
+    """Kiro-style interactive first-run setup survey supporting all providers."""
+    try:
+        keyring = import_module("keyring")
+    except ImportError:
+        print(
+            f"  {ANSI_ORANGE}Tip:{ANSI_RESET} Install keyring to enable credential storage."
+        )
+        return
+
+    B = ANSI_BLUE
+    O = ANSI_ORANGE
+    G = ANSI_GREEN
+    R = ANSI_RESET
+    BOX_W = 52
+
+    def box_line(text: str, char: str = "═", left: str = "╔", right: str = "╗") -> str:
+        inner = char * (BOX_W - 2)
+        return f"  {left}{inner}{right}"
+
+    def box_mid(text: str) -> str:
+        padded = text[: BOX_W - 4]
+        spaces = BOX_W - 4 - len(padded)
+        return f"  ║  {padded}{' ' * spaces}  ║"
+
+    def step_top(label: str) -> str:
+        dash = "─"
+        side = f" {label} "
+        right_fill = dash * max(0, BOX_W - 4 - len(side))
+        return f"  ┌─{side}{right_fill}┐"
+
+    def step_row(text: str) -> str:
+        padded = text[: BOX_W - 4]
+        spaces = BOX_W - 4 - len(padded)
+        return f"  │  {padded}{' ' * spaces}  │"
+
+    def step_bot() -> str:
+        return f"  └{'─' * (BOX_W - 2)}┘"
+
+    try:
+        # ── Welcome ──────────────────────────────────────────────────────────
+        print()
+        print(box_line("", "═", "╔", "╗"))
+        print(box_mid(f"{O}Welcome to Panther CLI v0.1.0{R}"))
+        print(box_mid("Your AI-powered coding agent is ready."))
+        print(box_line("", "═", "╚", "╝"))
+        print()
+        print(f"  {B}Let's get you set up. This takes about 30 seconds.{R}")
+        print(f"  {B}(Press Ctrl+C at any time to skip){R}")
+        print()
+
+        # ── Step 1: Name ──────────────────────────────────────────────────────
+        print(step_top("Step 1 of 3: About you"))
+        print(step_row("What should Panther call you?"))
+        print(step_bot())
+        try:
+            raw_name = input("  Name: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            raw_name = ""
+        name = raw_name or "there"
+
+        # ── Step 2: Provider ──────────────────────────────────────────────────
+        print()
+        print(step_top("Step 2 of 3: Connect an AI provider"))
+        print(step_row("Choose your AI backend:"))
+        print(step_row(""))
+        print(step_row(f"  {B}[1]{R} Google Gemini       (GEMINI_API_KEY)"))
+        print(step_row(f"  {B}[2]{R} OpenAI / Compatible  (OPENAI_API_KEY)"))
+        print(step_row(f"  {B}[3]{R} NVIDIA NIM           (NVIDIA_API_KEY)"))
+        print(step_row(f"  {B}[4]{R} Skip for now         (use env vars later)"))
+        print(step_bot())
+        try:
+            choice_raw = input("  Choice [1-4]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            choice_raw = "4"
+        choice = choice_raw if choice_raw in ("1", "2", "3", "4") else "4"
+
+        provider_name = "local"
+        key_env_hint = ""
+        stored_key = False
+
+        if choice == "4":
+            print()
+            print(
+                f"  {O}Tip:{R} Set GEMINI_API_KEY, OPENAI_API_KEY, or NVIDIA_API_KEY "
+                "to use Panther."
+            )
+        else:
+            # ── API key entry ─────────────────────────────────────────────────
+            if choice == "1":
+                provider_name = "gemini"
+                username = GEMINI_KEYRING_USERNAME
+                key_env_hint = "GEMINI_API_KEY"
+                prompt_label = "Gemini"
+            elif choice == "2":
+                provider_name = "openai-compatible"
+                username = OPENAI_COMPATIBLE_KEYRING_USERNAME
+                key_env_hint = "OPENAI_API_KEY"
+                prompt_label = "OpenAI"
+            else:
+                provider_name = "nvidia"
+                username = NVIDIA_KEYRING_USERNAME
+                key_env_hint = "NVIDIA_API_KEY"
+                prompt_label = "NVIDIA"
+
+            print()
+            print(f"  {O}{prompt_label} API Key{R} (input hidden):")
+            try:
+                api_key = getpass.getpass("  Key: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                api_key = ""
+
+            if api_key:
+                try:
+                    keyring.set_password(NVIDIA_KEYRING_SERVICE, username, api_key)
+                    stored_key = True
+                except Exception as exc:
+                    print(f"  {ANSI_RED}Could not save key to keyring: {exc}{R}")
+
+                config["activeProvider"] = provider_name
+
+                if choice == "2":
+                    print()
+                    print(f"  {B}Base URL{R} (default: https://api.openai.com/v1):")
+                    try:
+                        base_url = input("  URL: ").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        base_url = ""
+                    if not base_url:
+                        base_url = "https://api.openai.com/v1"
+                    config["apiBaseUrl"] = base_url
+
+                    print()
+                    print(f"  {B}Model{R} (default: gpt-4o):")
+                    try:
+                        api_model = input("  Model: ").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        api_model = ""
+                    if not api_model:
+                        api_model = "gpt-4o"
+                    config["apiModel"] = api_model
+            else:
+                print(f"  {O}No key entered — skipping provider setup.{R}")
+
+        # ── Step 3: Confirmation ──────────────────────────────────────────────
+        print()
+        print(step_top("Step 3 of 3: All done!"))
+        print(step_row(f"  {G}✓{R} Hello, {name}! Panther is ready."))
+        if stored_key and provider_name != "local":
+            model_hint = _active_model(config, code_mode=False, image_content=None)
+            print(step_row(f"  {G}✓{R} Provider: {provider_name} ({model_hint})"))
+            print(step_row(""))
+            print(step_row(f"  Tip: Set {key_env_hint} env var to skip setup."))
+        print(step_bot())
+
+        config["onboardingComplete"] = True
+        config["userName"] = name
+        save_config(config)
+
+    except (KeyboardInterrupt, EOFError):
+        print(f"\n  {O}Setup skipped — you can re-run it by deleting onboardingComplete{R}")
+        print(f"  {B}Tip: Set GEMINI_API_KEY, OPENAI_API_KEY, or NVIDIA_API_KEY.{R}\n")
 
 
 def _load_user_profile() -> dict[str, str]:
@@ -2464,8 +2684,14 @@ def _repl(
 ) -> int:
     config = load_config(root)
     global_config = load_config()
-    _print_banner(show_banner=show_banner)
-    if _needs_first_run_onboarding(global_config):
+    _print_banner(show_banner=show_banner, config=config)
+    if _needs_setup(global_config):
+        if sys.stdin.isatty():
+            _run_setup_survey(global_config, root)
+            config = load_config(root)
+        else:
+            print("  Tip: set GEMINI_API_KEY, OPENAI_API_KEY, or NVIDIA_API_KEY to use Panther.")
+    elif _needs_first_run_onboarding(global_config):
         if not sys.stdin.isatty():
             raise RuntimeError(
                 "Panther's first-run setup needs an interactive terminal. "
@@ -2486,7 +2712,7 @@ def _repl(
             try:
                 task = (
                     prompt_session.prompt(
-                        HTML("<ansiyellow><b>panther</b></ansiyellow> > ")
+                        HTML(f"<ansiyellow><b>panther</b></ansiyellow> <ansiblue>({_active_provider(config)})</ansiblue> <b>›</b> ")
                     )
                     if prompt_session is not None
                     else input("panther> ")
@@ -2510,7 +2736,7 @@ def _repl(
                     continue
                 if command == "clear":
                     _clear_terminal()
-                    _print_banner(show_banner=True)
+                    _print_banner(show_banner=True, config=config)
                     print(f"Panther session {session['id']} (type 'exit' to quit)")
                     continue
                 if command == "status":
