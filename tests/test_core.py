@@ -42,6 +42,8 @@ from panther.cli import (
     _transcript_cursor_position,
     _image_content_for_task,
     _nvidia_api_key,
+    _nvidia_chat_model_candidates,
+    _nvidia_check,
     _nvidia_provider,
     _mysql_command,
     _repl,
@@ -1492,6 +1494,103 @@ class AgentTests(unittest.TestCase):
 
 
 class NvidiaProviderTests(unittest.TestCase):
+    def test_probe_sends_minimal_chat_request_with_short_timeout(self) -> None:
+        response = io.BytesIO(
+            b'{"choices":[{"message":{"content":"Panther is ready."}}]}'
+        )
+        with patch.dict(os.environ, {"NVIDIA_API_KEY": "test-secret"}), patch(
+            "panther.provider.urllib.request.urlopen",
+            return_value=response,
+        ) as urlopen:
+            provider = NvidiaProvider("nvidia/test-model")
+            self.assertEqual(provider.probe(), "Panther is ready.")
+
+        payload = json.loads(urlopen.call_args.args[0].data)
+        self.assertEqual(payload["model"], "nvidia/test-model")
+        self.assertNotIn("tools", payload)
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 20)
+
+    def test_nvidia_candidate_order_prefers_chat_models_and_excludes_services(self) -> None:
+        models = [
+            "nvidia/nemotron-instruct",
+            "nvidia/llama-instruct",
+            "nvidia/qwen-embed",
+            "nvidia/rerank",
+            "nvidia/other-chat",
+        ]
+
+        self.assertEqual(
+            _nvidia_chat_model_candidates(
+                models,
+                ["nvidia/llama-instruct", "nvidia/qwen-embed"],
+            ),
+            [
+                "nvidia/llama-instruct",
+                "nvidia/nemotron-instruct",
+                "nvidia/other-chat",
+            ],
+        )
+
+    def test_nvidia_check_switches_only_to_a_model_that_passed_inference(self) -> None:
+        config = {
+            "activeProvider": "nvidia",
+            "activeBot": "",
+            "bots": {},
+            "remoteModel": "nvidia/unavailable",
+            "codeModel": "nvidia/working",
+            "visionModel": "nvidia/vision",
+        }
+        instances: list[SimpleNamespace] = []
+
+        def provider_factory(
+            model: str,
+            api_key: str | None = None,
+        ) -> SimpleNamespace:
+            def probe() -> str:
+                if model == "nvidia/unavailable":
+                    raise RuntimeError(
+                        "NVIDIA lists this model, but its serving function is not "
+                        "available to this API account."
+                    )
+                return "ready"
+
+            instance = SimpleNamespace(
+                model=model,
+                list_models=lambda: [
+                    "nvidia/unavailable",
+                    "nvidia/working",
+                    "nvidia/vision",
+                ],
+                probe=probe,
+            )
+            instances.append(instance)
+            return instance
+
+        with patch("panther.cli._nvidia_api_key", return_value="test-secret"), patch(
+            "panther.cli.NvidiaProvider",
+            side_effect=provider_factory,
+        ), patch(
+            "panther.cli.save_config",
+            return_value=Path("config.json"),
+        ) as save_config, patch(
+            "panther.cli.sys.stdin",
+            SimpleNamespace(isatty=lambda: True),
+        ), patch("builtins.input", return_value="1"):
+            self.assertEqual(_nvidia_check(config, Path(".")), 0)
+
+        self.assertEqual(config["remoteModel"], "nvidia/working")
+        self.assertEqual(config["activeProvider"], "nvidia")
+        self.assertEqual(save_config.call_args.args[0]["remoteModel"], "nvidia/working")
+        self.assertEqual(
+            [instance.model for instance in instances],
+            [
+                "nvidia/unavailable",
+                "nvidia/unavailable",
+                "nvidia/working",
+                "nvidia/vision",
+            ],
+        )
+
     def test_project_env_reads_nvidia_key_without_exporting_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -1573,8 +1672,9 @@ class NvidiaProviderTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 RuntimeError,
                 "not available to this API account",
-            ):
+            ) as context:
                 provider.generate([{"role": "user", "content": "Hi"}], [])
+        self.assertIn("panther nvidia check", str(context.exception))
 
 
 class AdditionalProviderTests(unittest.TestCase):

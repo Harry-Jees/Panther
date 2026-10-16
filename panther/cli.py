@@ -1180,6 +1180,20 @@ def _nvidia_api_key(project_root: Path) -> str | None:
 
 
 USER_PROFILE_KEYRING_USERNAME = "user-profile"
+_NVIDIA_CHAT_MODEL_EXCLUSIONS = (
+    "embed",
+    "rerank",
+    "guard",
+    "moderation",
+    "safety",
+    "asr",
+    "tts",
+    "speech",
+    "parakeet",
+    "diffusion",
+    "sdxl",
+)
+_NVIDIA_MODEL_PROBE_LIMIT = 8
 
 
 def _needs_first_run_onboarding(config: dict[str, Any]) -> bool:
@@ -1196,6 +1210,45 @@ def _needs_first_run_onboarding(config: dict[str, Any]) -> bool:
         raise ValueError(f"Config must contain a JSON object: {path}")
     # Do not force existing installations without this setting through setup.
     return saved_config.get("onboardingComplete") is False
+
+
+def _nvidia_chat_model_candidates(
+    models: list[str],
+    preferred: Sequence[str],
+) -> list[str]:
+    available = set(models)
+    candidates: list[str] = []
+    for model in preferred:
+        if (
+            model in available
+            and model not in candidates
+            and not any(
+                marker in model.casefold()
+                for marker in _NVIDIA_CHAT_MODEL_EXCLUSIONS
+            )
+        ):
+            candidates.append(model)
+
+    family_order = ("nemotron", "llama", "qwen", "deepseek", "mistral", "gpt", "kimi")
+    remaining = [
+        model
+        for model in available - set(candidates)
+        if not any(marker in model.casefold() for marker in _NVIDIA_CHAT_MODEL_EXCLUSIONS)
+    ]
+    remaining.sort(
+        key=lambda model: (
+            next(
+                (
+                    index
+                    for index, family in enumerate(family_order)
+                    if family in model.casefold()
+                ),
+                len(family_order),
+            ),
+            model.casefold(),
+        )
+    )
+    return (candidates + remaining)[:_NVIDIA_MODEL_PROBE_LIMIT]
 
 
 def _first_run_onboarding(config: dict[str, Any], project_root: Path) -> None:
@@ -1278,6 +1331,15 @@ def _first_run_onboarding(config: dict[str, Any], project_root: Path) -> None:
         selected_model = selection
     else:
         raise ValueError("Choose a listed model number or an advertised model ID.")
+
+    try:
+        NvidiaProvider(selected_model, api_key=api_key).probe()
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"NVIDIA advertises '{selected_model}', but it did not pass a live "
+            "inference check. Run `panther nvidia check` to find a model this "
+            f"account can use. Details: {exc}"
+        ) from exc
 
     user_name = input("What name should Panther use for you? ").strip()
     if not user_name:
@@ -1378,6 +1440,104 @@ class _NvidiaProfileProvider:
 
 def _nvidia_provider(model: str, project_root: Path) -> NvidiaProvider:
     return NvidiaProvider(model, api_key=_nvidia_api_key(project_root))
+
+
+def _nvidia_check(config: dict[str, Any], project_root: Path) -> int:
+    active_bot = config.get("activeBot")
+    active_profile = config.get("bots", {}).get(active_bot, {})
+    if isinstance(active_profile, dict) and active_profile.get("provider") == "nvidia":
+        current_model = active_profile["model"]
+        api_key = _bot_api_key(active_bot, "nvidia", project_root)
+    else:
+        current_model = config["remoteModel"]
+        api_key = _nvidia_api_key(project_root)
+
+    catalog = NvidiaProvider(current_model, api_key=api_key)
+    models = catalog.list_models()
+    candidates = _nvidia_chat_model_candidates(
+        models,
+        [
+            current_model,
+            config["remoteModel"],
+            config["codeModel"],
+            config["visionModel"],
+        ],
+    )
+    if not candidates:
+        raise RuntimeError(
+            "NVIDIA did not advertise any likely chat models for this API account."
+        )
+
+    print(
+        f"Checking up to {len(candidates)} advertised chat models with live "
+        "inference (the catalog alone does not guarantee account access):"
+    )
+    working: list[str] = []
+    for model in candidates:
+        try:
+            NvidiaProvider(model, api_key=api_key).probe()
+        except RuntimeError as exc:
+            error = str(exc).casefold()
+            model_unavailable = any(
+                marker in error
+                for marker in (
+                    "not available to this api account",
+                    "nvidia api request failed (400)",
+                    "nvidia api request failed (403)",
+                    "nvidia api request failed (404)",
+                    "empty response during model check",
+                )
+            )
+            if not model_unavailable:
+                raise RuntimeError(
+                    f"Could not complete the NVIDIA model check for '{model}': {exc}"
+                ) from exc
+            print(f"  unavailable: {model}")
+            continue
+        working.append(model)
+        print(f"  ready:       {model}")
+
+    if not working:
+        raise RuntimeError(
+            "None of the tested NVIDIA chat models passed a live inference check. "
+            "Check NVIDIA API key permissions and the model's NVIDIA API Catalog "
+            "access, then retry `panther nvidia check`."
+        )
+
+    default_model = current_model if current_model in working else working[0]
+    if not sys.stdin.isatty():
+        print(
+            f"Working model found: {default_model}. Run `panther nvidia check` "
+            "in an interactive terminal to select and save it."
+        )
+        return 0
+
+    print("Models that passed:")
+    for index, model in enumerate(working, start=1):
+        print(f"  {index}. {model}")
+    selection = input(f"Select a model to use [{default_model}]: ").strip()
+    if not selection:
+        selected_model = default_model
+    elif selection.isdigit() and 1 <= int(selection) <= len(working):
+        selected_model = working[int(selection) - 1]
+    elif selection in working:
+        selected_model = selection
+    else:
+        raise ValueError("Choose a model that passed the live inference check.")
+
+    updated = dict(config)
+    if isinstance(active_profile, dict) and active_profile.get("provider") == "nvidia":
+        bots = dict(config["bots"])
+        bots[active_bot] = {**active_profile, "model": selected_model}
+        updated["bots"] = bots
+    else:
+        updated["activeProvider"] = "nvidia"
+        updated["activeBot"] = ""
+        updated["remoteModel"] = selected_model
+    saved_path = save_config(updated, project_root)
+    config.update(updated)
+    print(f"Selected NVIDIA model: {selected_model}\nSaved: {saved_path}")
+    return 0
 
 
 def _openai_compatible_api_key(project_root: Path) -> str | None:
@@ -2002,11 +2162,10 @@ def _add_commands(parser: argparse.ArgumentParser) -> None:
         "setup", help="Run the first-time named API bot setup wizard"
     )
     setup_parser.add_argument("name", nargs="?", help="Optional name for the new bot")
-    subparsers.add_parser("gui", help="Open Panther's Windows desktop workspace")
     nvidia_parser = subparsers.add_parser(
         "nvidia", help="Inspect NVIDIA API access"
     )
-    nvidia_parser.add_argument("action", choices=["models"])
+    nvidia_parser.add_argument("action", choices=["models", "check"])
 
 
 def _run_command(args: argparse.Namespace, root: Path) -> int:
@@ -2286,7 +2445,7 @@ def _repl(
         if not sys.stdin.isatty():
             raise RuntimeError(
                 "Panther's first-run setup needs an interactive terminal. "
-                "Launch `panther` from a desktop terminal to continue."
+                "Launch `panther` from an interactive terminal to continue."
             )
         _first_run_onboarding(global_config, root)
         config = load_config(root)
@@ -2583,10 +2742,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 Namespace(action="add", name=args.name),
                 root,
             )
-        if args.command == "gui":
-            from .gui import main as gui_main
-
-            return gui_main()
         if args.command == "analyze":
             target = Path(args.path).resolve()
             print(_analyze_repository(target))
@@ -2632,7 +2787,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(json.dumps(config, indent=2))
             return 0
         if args.command == "nvidia":
-            provider = _nvidia_provider(load_config(root)["remoteModel"], root)
+            config = load_config(root)
+            if args.action == "check":
+                return _nvidia_check(config, root)
+            provider = _nvidia_provider(config["remoteModel"], root)
             for model in provider.list_models():
                 print(model)
             return 0

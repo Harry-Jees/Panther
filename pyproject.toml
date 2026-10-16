@@ -19,9 +19,6 @@ mysql = ["mysql-connector-python>=9.2"]
 [project.scripts]
 panther = "panther.cli:main"
 
-[project.gui-scripts]
-panther-desktop = "panther.gui:main"
-
 [tool.setuptools]
 packages = ["panther"]
 

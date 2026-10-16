@@ -81,12 +81,9 @@ python -m unittest discover -s tests -v
 ## Usage
 
 ```bash
-# Open the native desktop workspace
-panther-desktop
-# Or launch it from the CLI
-python -m panther gui
-
-# Start an interactive session (local model)
+# Start Panther's interactive CLI
+panther
+# Or
 python -m panther
 
 # Run a task with the local model
@@ -112,8 +109,10 @@ python -m panther config --vision-model google/gemma-4-31b-it
 python -m panther config --provider local
 python -m panther auth status nvidia
 
-# List models advertised by your NVIDIA API key
+# List models advertised in NVIDIA's catalog (catalog presence is not access)
 python -m panther nvidia models
+# Probe NVIDIA chat models with real requests and select one that works
+python -m panther nvidia check
 
 # In an interactive session, use /image and browse_web when needed
 # /image assets/diagram.png Explain this diagram
@@ -142,25 +141,16 @@ python -m panther mysql test
 python -m panther mysql status
 ```
 
-The Windows desktop workspace follows a VS Code-style layout: project
-explorer, UTF-8 editor, and Panther agent side by side, with a docked terminal
-panel below. Choose a folder to set the workspace root for the editor, agent,
-and terminal commands. After each task, Panther prints changed files and
-colored unified line diffs inline in the agent pane; sensitive files such as
-`.env` are listed without exposing their contents. Risky agent tool actions
-still require approval from the app. Terminal commands run in the selected
-folder and their output appears in the terminal panel. The desktop launcher is
-created as a Windows GUI entry point; the existing `panther` CLI remains
-available separately.
-
-On a fresh desktop install, starting `panther` in an interactive terminal asks
-for an NVIDIA API key if one is not already configured, loads the models
-available to that key, and lets you choose a model before asking a short
-onboarding survey. The key and profile fields are stored in the operating
-system credential store; they are not put in Panther's JSON configuration or
-session history. Profile details stay local unless you explicitly agree to
-share them with NVIDIA. Existing installations without an onboarding marker
-are not forced through this first-run flow.
+Panther is a terminal-first CLI application. Running `panther` starts the
+interactive coding session with its startup banner, command help, slash
+commands, and agent prompts. On a fresh install, the CLI asks for an NVIDIA
+API key if one is not already configured, loads the models available to that
+key, lets you choose a model, and then presents a short onboarding survey.
+The key and profile fields are stored in the operating system credential
+store; they are not put in Panther's JSON configuration or session history.
+Profile details stay local unless you explicitly agree to share them with
+NVIDIA. Existing installations without an onboarding marker are not forced
+through this first-run flow.
 
 Panther stores global settings and downloaded models under `~/.panther`. Project
 sessions, configuration, and the local file inventory are stored under the

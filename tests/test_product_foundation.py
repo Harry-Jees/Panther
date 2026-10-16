@@ -83,6 +83,7 @@ class DesktopOnboardingTests(unittest.TestCase):
             "nvidia/model-a",
             "nvidia/model-b",
         ]
+        nvidia_provider.return_value.probe.return_value = "ready"
         answers = iter(
             ["2", "Ada", "Build software", "Prefers concise answers", "n"]
         )
@@ -105,6 +106,11 @@ class DesktopOnboardingTests(unittest.TestCase):
         self.assertNotIn("nvidia-secret", json.dumps(stored_config))
         self.assertNotIn("Ada", json.dumps(stored_config))
         self.assertEqual(config["remoteModel"], "nvidia/model-b")
+        nvidia_provider.assert_called_with(
+            "nvidia/model-b",
+            api_key="nvidia-secret",
+        )
+        nvidia_provider.return_value.probe.assert_called_once()
         self.assertEqual(config["activeProvider"], "nvidia")
         self.assertTrue(config["onboardingComplete"])
         self.assertTrue(stored_config["onboardingComplete"])

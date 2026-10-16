@@ -139,16 +139,36 @@ class NvidiaProvider:
             )
 
     def generate(self, history: list[dict[str, Any]], tools: list[dict[str, Any]]) -> str:
-        payload = json.dumps(
-            {
-                "model": self.model,
-                "messages": _conversation(history, tools),
-                "tools": _api_tools(tools),
-                "tool_choice": "auto",
-                "temperature": 0.2,
-                "max_tokens": 2048,
-            }
-        ).encode("utf-8")
+        return self._generate(history, tools, timeout=120)
+
+    def probe(self) -> str:
+        """Verify the model can serve a small real chat completion."""
+        response = self._generate(
+            [{"role": "user", "content": "Reply with exactly: Panther is ready."}],
+            [],
+            timeout=20,
+        ).strip()
+        if not response:
+            raise RuntimeError("NVIDIA returned an empty response during model check.")
+        return response
+
+    def _generate(
+        self,
+        history: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        timeout: int,
+    ) -> str:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": _conversation(history, tools),
+            "temperature": 0.2,
+            "max_tokens": 64 if not tools else 2048,
+        }
+        if tools:
+            payload["tools"] = _api_tools(tools)
+            payload["tool_choice"] = "auto"
+        payload = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
             NVIDIA_API_URL,
             data=payload,
@@ -160,7 +180,7 @@ class NvidiaProvider:
         )
         request.add_header("Authorization", "Bearer " + self._api_key)
         try:
-            with urllib.request.urlopen(request, timeout=120) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 result = json.loads(response.read().decode("utf-8"))
             message = result["choices"][0]["message"]
             native_calls = message.get("tool_calls", [])
@@ -181,7 +201,8 @@ class NvidiaProvider:
                 raise RuntimeError(
                     "NVIDIA lists this model, but its serving function is not "
                     "available to this API account. Check NVIDIA API account "
-                    "access and key permissions."
+                    "access and key permissions. Run `panther nvidia check` to "
+                    "find and select a model that passes a live inference test."
                     f" NVIDIA response: {detail}"
                 ) from exc
             raise RuntimeError(
