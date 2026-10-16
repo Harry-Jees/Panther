@@ -439,8 +439,41 @@ def _create_prompt_session(config: dict[str, Any], project_root: Path) -> Any:
         return None
 
 
+def _enable_virtual_terminal_processing() -> bool:
+    """Enable VT100 / ANSI escape processing on Windows consoles."""
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        if handle in (0, -1):
+            return False
+        mode = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        if (mode.value & ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0:
+            kernel32.SetConsoleMode(handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+        return True
+    except Exception:
+        return False
+
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences to compute visual character length accurately."""
+    return _ANSI_ESCAPE_RE.sub("", text)
+
+
 def _supports_truecolor() -> bool:
-    return sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+    if not sys.stdout.isatty() or os.environ.get("NO_COLOR") is not None:
+        return False
+    if sys.platform == "win32":
+        _enable_virtual_terminal_processing()
+    return True
 
 
 def _paint(text: str, color: str, *, bold: bool = False) -> str:
@@ -1050,6 +1083,8 @@ def _mysql_command(args: argparse.Namespace, root: Path) -> int:
 
 def _clear_terminal() -> None:
     if sys.stdout.isatty():
+        if sys.platform == "win32":
+            _enable_virtual_terminal_processing()
         print("\033[2J\033[H", end="")
     else:
         print("\n" * 3)
@@ -1458,9 +1493,9 @@ def _run_setup_survey(config: dict[str, Any], project_root: Path) -> None:
         return f"  {left}{inner}{right}"
 
     def box_mid(text: str) -> str:
-        padded = text[: BOX_W - 4]
-        spaces = BOX_W - 4 - len(padded)
-        return f"  ║  {padded}{' ' * spaces}  ║"
+        visible_len = len(_strip_ansi(text))
+        spaces = max(0, BOX_W - 4 - visible_len)
+        return f"  ║  {text}{' ' * spaces}  ║"
 
     def step_top(label: str) -> str:
         dash = "─"
@@ -1469,9 +1504,9 @@ def _run_setup_survey(config: dict[str, Any], project_root: Path) -> None:
         return f"  ┌─{side}{right_fill}┐"
 
     def step_row(text: str) -> str:
-        padded = text[: BOX_W - 4]
-        spaces = BOX_W - 4 - len(padded)
-        return f"  │  {padded}{' ' * spaces}  │"
+        visible_len = len(_strip_ansi(text))
+        spaces = max(0, BOX_W - 4 - visible_len)
+        return f"  │  {text}{' ' * spaces}  │"
 
     def step_bot() -> str:
         return f"  └{'─' * (BOX_W - 2)}┘"
@@ -2974,6 +3009,7 @@ def _repl(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    _enable_virtual_terminal_processing()
     parser = argparse.ArgumentParser(
         prog="panther",
         description="A local-first coding agent powered by Python.",
