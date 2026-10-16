@@ -321,6 +321,7 @@ class _BottomPrompt:
             event.app.invalidate()
 
         @bindings.add("c-v")
+        @bindings.add("s-insert")
         def _paste_clipboard(event: Any) -> None:
             text = _get_clipboard_text()
             if text:
@@ -474,6 +475,44 @@ def _get_clipboard_text() -> str | None:
     return None
 
 
+def _prompt_password(prompt: str = "Password: ") -> str:
+    """Prompt for a secret/key with input hidden, supporting Ctrl+V clipboard pasting."""
+    if sys.platform == "win32" and sys.stdin.isatty() and sys.stdin is sys.__stdin__:
+        try:
+            import msvcrt
+            for char in prompt:
+                msvcrt.putwch(char)
+            chars: list[str] = []
+            while True:
+                char = msvcrt.getwch()
+                if char in ("\r", "\n"):
+                    break
+                if char == "\003":  # Ctrl+C
+                    raise KeyboardInterrupt
+                if char == "\004":  # Ctrl+D
+                    raise EOFError
+                if char == "\026":  # Ctrl+V
+                    clip = _get_clipboard_text()
+                    if clip:
+                        clip_clean = clip.rstrip("\r\n")
+                        chars.extend(clip_clean)
+                    continue
+                if char in ("\b", "\x7f"):  # Backspace
+                    if chars:
+                        chars.pop()
+                elif char in ("\x00", "\xe0"):  # Special/arrow keys prefix
+                    msvcrt.getwch()
+                else:
+                    chars.append(char)
+            msvcrt.putwch("\r")
+            msvcrt.putwch("\n")
+            return "".join(chars)
+        except Exception:
+            pass
+
+    return getpass.getpass(prompt)
+
+
 def _create_prompt_session(config: dict[str, Any], project_root: Path) -> Any:
     if PromptSession is None or not sys.stdin.isatty():
         return None
@@ -487,6 +526,7 @@ def _create_prompt_session(config: dict[str, Any], project_root: Path) -> Any:
         bindings = KeyBindings()
 
         @bindings.add("c-v")
+        @bindings.add("s-insert")
         def _paste_clipboard(event: Any) -> None:
             text = _get_clipboard_text()
             if text:
@@ -506,21 +546,34 @@ def _create_prompt_session(config: dict[str, Any], project_root: Path) -> Any:
 
 
 def _enable_virtual_terminal_processing() -> bool:
-    """Enable VT100 / ANSI escape processing on Windows consoles."""
+    """Enable VT100 / ANSI escape processing and input paste support on Windows consoles."""
     if sys.platform != "win32":
         return True
     try:
         import ctypes
+        from ctypes import wintypes
         kernel32 = ctypes.windll.kernel32
-        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
-        if handle in (0, -1):
-            return False
-        mode = ctypes.c_ulong()
-        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
-            return False
-        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
-        if (mode.value & ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0:
-            kernel32.SetConsoleMode(handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+
+        # 1. Output mode: ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        h_out = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        if h_out not in (0, -1):
+            out_mode = wintypes.DWORD()
+            if kernel32.GetConsoleMode(h_out, ctypes.byref(out_mode)):
+                ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+                if (out_mode.value & ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0:
+                    kernel32.SetConsoleMode(h_out, out_mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+
+        # 2. Input mode: Ensure ENABLE_QUICK_EDIT_MODE and ENABLE_EXTENDED_FLAGS are active
+        h_in = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+        if h_in not in (0, -1):
+            in_mode = wintypes.DWORD()
+            if kernel32.GetConsoleMode(h_in, ctypes.byref(in_mode)):
+                ENABLE_QUICK_EDIT_MODE = 0x0040
+                ENABLE_EXTENDED_FLAGS = 0x0080
+                ENABLE_INSERT_MODE = 0x0020
+                new_in_mode = in_mode.value | ENABLE_QUICK_EDIT_MODE | ENABLE_EXTENDED_FLAGS | ENABLE_INSERT_MODE
+                kernel32.SetConsoleMode(h_in, new_in_mode)
+
         return True
     except Exception:
         return False
@@ -1111,7 +1164,7 @@ def _mysql_command(args: argparse.Namespace, root: Path) -> int:
         "database": database,
         "username": username,
     }
-    password = getpass.getpass("MySQL password (input hidden): ")
+    password = _prompt_password("MySQL password (input hidden): ")
     if not password:
         raise ValueError("MySQL password cannot be empty.")
     test_mysql_connection(root, password, settings)
@@ -1394,7 +1447,7 @@ def _first_run_onboarding(config: dict[str, Any], project_root: Path) -> None:
                 f"Could not read NVIDIA credentials from the OS keyring: {exc}"
             ) from exc
     if not api_key:
-        api_key = getpass.getpass("NVIDIA API key (input hidden): ").strip()
+        api_key = _prompt_password("NVIDIA API key (input hidden): ").strip()
         if not api_key:
             raise ValueError("NVIDIA API key cannot be empty.")
         try:
@@ -1646,7 +1699,7 @@ def _run_setup_survey(config: dict[str, Any], project_root: Path) -> None:
             print()
             print(f"  {O}{prompt_label} API Key{R} (input hidden):")
             try:
-                api_key = getpass.getpass("  Key: ").strip()
+                api_key = _prompt_password("  Key: ").strip()
             except (EOFError, KeyboardInterrupt):
                 api_key = ""
 
@@ -2582,7 +2635,7 @@ def _auth_command(args: argparse.Namespace, root: Path) -> int:
         else _openai_compatible_api_key(root)
     )
     if args.action == "add":
-        api_key = getpass.getpass(f"{label} API key (input hidden): ").strip()
+        api_key = _prompt_password(f"{label} API key (input hidden): ").strip()
         if not api_key:
             raise ValueError("API key cannot be empty.")
         try:
@@ -2688,7 +2741,7 @@ def _bot_command(args: argparse.Namespace, root: Path) -> int:
             base_url = input("API base URL (must end before /chat/completions): ").strip()
             OpenAICompatibleProvider._validate_base_url(base_url)
             profile["baseUrl"] = base_url.rstrip("/")
-        api_key = getpass.getpass(f"{provider} API key (input hidden): ").strip()
+        api_key = _prompt_password(f"{provider} API key (input hidden): ").strip()
         if not api_key:
             raise ValueError("API key cannot be empty.")
 
