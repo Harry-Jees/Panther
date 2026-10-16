@@ -10,13 +10,17 @@ readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Panther" }]
 license = { text = "ISC" }
-dependencies = ["keyring>=25.0", "python-dotenv>=1.0"]
+dependencies = ["keyring>=25.0", "python-dotenv>=1.0", "prompt-toolkit>=3.0.43"]
 
 [project.optional-dependencies]
 local = ["llama-cpp-python>=0.3.0"]
+mysql = ["mysql-connector-python>=9.2"]
 
 [project.scripts]
 panther = "panther.cli:main"
+
+[project.gui-scripts]
+panther-desktop = "panther.gui:main"
 
 [tool.setuptools]
 packages = ["panther"]
