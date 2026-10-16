@@ -2751,6 +2751,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="panther",
         description="A local-first coding agent powered by Python.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Provider setup (set one env var — no config needed):\n"
+            "  GEMINI_API_KEY      Google Gemini (gemini-2.5-flash)\n"
+            "  OPENAI_API_KEY      OpenAI or any compatible API (gpt-4o)\n"
+            "  NVIDIA_API_KEY      NVIDIA NIM\n"
+            "\n"
+            "Examples:\n"
+            "  panther \"Explain what this repo does\"\n"
+            "  panther run --code \"Add unit tests for parser.py\"\n"
+            "  panther bot add my-gemini   # named bot with stored key\n"
+            "  panther analyze .\n"
+        ),
     )
     parser.add_argument("--version", action="version", version="panther-cli 0.1.0")
     parser.add_argument(
