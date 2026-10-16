@@ -320,6 +320,12 @@ class _BottomPrompt:
             )
             event.app.invalidate()
 
+        @bindings.add("c-v")
+        def _paste_clipboard(event: Any) -> None:
+            text = _get_clipboard_text()
+            if text:
+                self.buffer.insert_text(text)
+
         @bindings.add("c-c")
         @bindings.add("c-d")
         def _cancel(event: Any) -> None:
@@ -418,6 +424,56 @@ class _BottomPrompt:
             raise result["error"]
 
 
+def _get_clipboard_text() -> str | None:
+    """Read plain text from system clipboard cross-platform."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            user32.OpenClipboard.argtypes = [wintypes.HWND]
+            user32.OpenClipboard.restype = wintypes.BOOL
+            user32.CloseClipboard.argtypes = []
+            user32.CloseClipboard.restype = wintypes.BOOL
+            user32.GetClipboardData.argtypes = [wintypes.UINT]
+            user32.GetClipboardData.restype = wintypes.HANDLE
+            kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+            kernel32.GlobalLock.restype = wintypes.LPVOID
+            kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+            kernel32.GlobalUnlock.restype = wintypes.BOOL
+
+            if user32.OpenClipboard(None):
+                try:
+                    handle = user32.GetClipboardData(13)  # CF_UNICODETEXT
+                    if handle:
+                        ptr = kernel32.GlobalLock(handle)
+                        if ptr:
+                            try:
+                                return ctypes.wstring_at(ptr)
+                            finally:
+                                kernel32.GlobalUnlock(handle)
+                finally:
+                    user32.CloseClipboard()
+        except Exception:
+            pass
+
+    # Fallback to tkinter
+    try:
+        import tkinter
+        tk = tkinter.Tk()
+        tk.withdraw()
+        try:
+            val = tk.clipboard_get()
+            return val if isinstance(val, str) else None
+        finally:
+            tk.destroy()
+    except Exception:
+        pass
+
+    return None
+
+
 def _create_prompt_session(config: dict[str, Any], project_root: Path) -> Any:
     if PromptSession is None or not sys.stdin.isatty():
         return None
@@ -428,12 +484,22 @@ def _create_prompt_session(config: dict[str, Any], project_root: Path) -> Any:
             "completion-menu.meta.completion": "bg:#242424 #888888",
             "completion-menu.meta.completion.current": "bg:#ff8c00 #333333",
         })
+        bindings = KeyBindings()
+
+        @bindings.add("c-v")
+        def _paste_clipboard(event: Any) -> None:
+            text = _get_clipboard_text()
+            if text:
+                event.current_buffer.insert_text(text)
+
         return PromptSession(
             completer=_SlashCommandCompleter(),
             complete_while_typing=True,
             complete_style=CompleteStyle.COLUMN,
             mouse_support=False,
             style=style,
+            key_bindings=bindings,
+            enable_suspend=False,
         )
     except Exception:
         return None
