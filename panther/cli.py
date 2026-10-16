@@ -19,10 +19,22 @@ from typing import Any, Callable, Sequence
 
 from dotenv import dotenv_values
 
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stdin, "reconfigure"):
+            sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.application import Application
     from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.clipboard import Clipboard, ClipboardData
     from prompt_toolkit.completion import CompleteEvent, Completer, Completion
     from prompt_toolkit.data_structures import Point
     from prompt_toolkit.formatted_text import FormattedText, HTML
@@ -36,6 +48,8 @@ except ImportError:  # pragma: no cover - exercised only in minimal installs
     PromptSession = None
     Application = None
     Buffer = None
+    Clipboard = None
+    ClipboardData = Any
     CompleteEvent = Any
     Completer = object
     Completion = Any
@@ -431,6 +445,7 @@ def _get_clipboard_text() -> str | None:
         try:
             import ctypes
             from ctypes import wintypes
+            import time
             user32 = ctypes.windll.user32
             kernel32 = ctypes.windll.kernel32
             user32.OpenClipboard.argtypes = [wintypes.HWND]
@@ -444,18 +459,21 @@ def _get_clipboard_text() -> str | None:
             kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
             kernel32.GlobalUnlock.restype = wintypes.BOOL
 
-            if user32.OpenClipboard(None):
-                try:
-                    handle = user32.GetClipboardData(13)  # CF_UNICODETEXT
-                    if handle:
-                        ptr = kernel32.GlobalLock(handle)
-                        if ptr:
-                            try:
-                                return ctypes.wstring_at(ptr)
-                            finally:
-                                kernel32.GlobalUnlock(handle)
-                finally:
-                    user32.CloseClipboard()
+            for _ in range(5):
+                if user32.OpenClipboard(None):
+                    try:
+                        handle = user32.GetClipboardData(13)  # CF_UNICODETEXT
+                        if handle:
+                            ptr = kernel32.GlobalLock(handle)
+                            if ptr:
+                                try:
+                                    return ctypes.wstring_at(ptr)
+                                finally:
+                                    kernel32.GlobalUnlock(handle)
+                    finally:
+                        user32.CloseClipboard()
+                    break
+                time.sleep(0.02)
         except Exception:
             pass
 
@@ -475,18 +493,34 @@ def _get_clipboard_text() -> str | None:
     return None
 
 
-def _prompt_password(prompt: str = "Password: ") -> str:
-    """Prompt for a secret/key with input hidden, supporting Ctrl+V clipboard pasting."""
+if Clipboard is not None:
+    class _SystemClipboard(Clipboard):
+        """Bridge prompt_toolkit clipboard to OS system clipboard."""
+
+        def set_data(self, data: ClipboardData) -> None:
+            pass
+
+        def get_data(self) -> ClipboardData:
+            text = _get_clipboard_text() or ""
+            return ClipboardData(text=text)
+else:
+    _SystemClipboard = None  # type: ignore[assignment, misc]
+
+
+def _prompt_text(prompt: str = "") -> str:
+    """Prompt for user text with interactive Ctrl+V paste support on Windows consoles."""
     if sys.platform == "win32" and sys.stdin.isatty() and sys.stdin is sys.__stdin__:
         try:
             import msvcrt
-            for char in prompt:
-                msvcrt.putwch(char)
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
             chars: list[str] = []
             while True:
                 char = msvcrt.getwch()
                 if char in ("\r", "\n"):
-                    break
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    return "".join(chars)
                 if char == "\003":  # Ctrl+C
                     raise KeyboardInterrupt
                 if char == "\004":  # Ctrl+D
@@ -494,19 +528,64 @@ def _prompt_password(prompt: str = "Password: ") -> str:
                 if char == "\026":  # Ctrl+V
                     clip = _get_clipboard_text()
                     if clip:
-                        clip_clean = clip.rstrip("\r\n")
+                        clip_clean = clip.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+                        chars.extend(clip_clean)
+                        sys.stdout.write(clip_clean)
+                        sys.stdout.flush()
+                    continue
+                if char in ("\b", "\x7f"):  # Backspace
+                    if chars:
+                        chars.pop()
+                        sys.stdout.write("\b \b")
+                        sys.stdout.flush()
+                    continue
+                if char in ("\x00", "\xe0"):  # Special/arrow keys prefix
+                    msvcrt.getwch()
+                    continue
+                chars.append(char)
+                sys.stdout.write(char)
+                sys.stdout.flush()
+        except (KeyboardInterrupt, EOFError):
+            raise
+        except Exception:
+            pass
+    return input(prompt)
+
+
+def _prompt_password(prompt: str = "Password: ") -> str:
+    """Prompt for a secret/key with input hidden, supporting Ctrl+V clipboard pasting."""
+    if sys.platform == "win32" and sys.stdin.isatty() and sys.stdin is sys.__stdin__:
+        try:
+            import msvcrt
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+            chars: list[str] = []
+            while True:
+                char = msvcrt.getwch()
+                if char in ("\r", "\n"):
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    return "".join(chars)
+                if char == "\003":  # Ctrl+C
+                    raise KeyboardInterrupt
+                if char == "\004":  # Ctrl+D
+                    raise EOFError
+                if char == "\026":  # Ctrl+V
+                    clip = _get_clipboard_text()
+                    if clip:
+                        clip_clean = clip.strip("\r\n")
                         chars.extend(clip_clean)
                     continue
                 if char in ("\b", "\x7f"):  # Backspace
                     if chars:
                         chars.pop()
-                elif char in ("\x00", "\xe0"):  # Special/arrow keys prefix
+                    continue
+                if char in ("\x00", "\xe0"):  # Special/arrow keys prefix
                     msvcrt.getwch()
-                else:
-                    chars.append(char)
-            msvcrt.putwch("\r")
-            msvcrt.putwch("\n")
-            return "".join(chars)
+                    continue
+                chars.append(char)
+        except (KeyboardInterrupt, EOFError):
+            raise
         except Exception:
             pass
 
@@ -532,6 +611,25 @@ def _create_prompt_session(config: dict[str, Any], project_root: Path) -> Any:
             if text:
                 event.current_buffer.insert_text(text)
 
+        output = None
+        if sys.platform == "win32":
+            try:
+                from prompt_toolkit.output.defaults import create_output
+                output = create_output()
+            except Exception:
+                try:
+                    from prompt_toolkit.output.vt100 import Vt100_Output
+                    output = Vt100_Output(sys.stdout, lambda: shutil.get_terminal_size((80, 24)))
+                except Exception:
+                    output = None
+
+        clipboard = None
+        if _SystemClipboard is not None:
+            try:
+                clipboard = _SystemClipboard()
+            except Exception:
+                clipboard = None
+
         return PromptSession(
             completer=_SlashCommandCompleter(),
             complete_while_typing=True,
@@ -540,6 +638,8 @@ def _create_prompt_session(config: dict[str, Any], project_root: Path) -> Any:
             style=style,
             key_bindings=bindings,
             enable_suspend=False,
+            output=output,
+            clipboard=clipboard,
         )
     except Exception:
         return None
@@ -573,6 +673,21 @@ def _enable_virtual_terminal_processing() -> bool:
                 ENABLE_INSERT_MODE = 0x0020
                 new_in_mode = in_mode.value | ENABLE_QUICK_EDIT_MODE | ENABLE_EXTENDED_FLAGS | ENABLE_INSERT_MODE
                 kernel32.SetConsoleMode(h_in, new_in_mode)
+
+        # 3. Ensure code page is UTF-8 (65001)
+        try:
+            kernel32.SetConsoleCP(65001)
+            kernel32.SetConsoleOutputCP(65001)
+        except Exception:
+            pass
+
+        # 4. Reconfigure stream encodings to UTF-8
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stdin, "reconfigure"):
+            sys.stdin.reconfigure(encoding="utf-8", errors="replace")
 
         return True
     except Exception:
@@ -1262,7 +1377,8 @@ def _print_banner(show_banner: bool = True, config: dict | None = None) -> None:
         else:
             provider_str = _paint("No provider configured", ANSI_ORANGE)
         help_str = _paint("Type /help for commands", ANSI_BLUE)
-        sep = _paint("  │  ", ANSI_BLUE)
+        sep_char = "│" if unicode_logo else "|"
+        sep = _paint(f"  {sep_char}  ", ANSI_BLUE)
         status_line = f"{indent}{version_str}{sep}{provider_str}{sep}{help_str}"
         print(status_line + "\n")
     else:
@@ -1607,36 +1723,59 @@ def _run_setup_survey(config: dict[str, Any], project_root: Path) -> None:
     R = ANSI_RESET
     BOX_W = 52
 
-    def box_line(text: str, char: str = "═", left: str = "╔", right: str = "╗") -> str:
-        inner = char * (BOX_W - 2)
-        return f"  {left}{inner}{right}"
+    encoding = sys.stdout.encoding or "utf-8"
+    try:
+        "╔═╗║┌─│└┘✓".encode(encoding, errors="strict")
+        unicode_box = True
+    except Exception:
+        unicode_box = False
+
+    h_d = "═" if unicode_box else "="
+    tl_d = "╔" if unicode_box else "+"
+    tr_d = "╗" if unicode_box else "+"
+    bl_d = "╚" if unicode_box else "+"
+    br_d = "╝" if unicode_box else "+"
+    v_d = "║" if unicode_box else "|"
+    h_s = "─" if unicode_box else "-"
+    tl_s = "┌" if unicode_box else "+"
+    tr_s = "┐" if unicode_box else "+"
+    bl_s = "└" if unicode_box else "+"
+    br_s = "┘" if unicode_box else "+"
+    v_s = "│" if unicode_box else "|"
+    tick = "✓" if unicode_box else "*"
+
+    def box_line(text: str, char: str | None = None, left: str | None = None, right: str | None = None) -> str:
+        c = h_d if char is None else char
+        l = tl_d if left is None else left
+        r = tr_d if right is None else right
+        inner = c * (BOX_W - 2)
+        return f"  {l}{inner}{r}"
 
     def box_mid(text: str) -> str:
         visible_len = len(_strip_ansi(text))
         spaces = max(0, BOX_W - 4 - visible_len)
-        return f"  ║  {text}{' ' * spaces}  ║"
+        return f"  {v_d}  {text}{' ' * spaces}  {v_d}"
 
     def step_top(label: str) -> str:
-        dash = "─"
         side = f" {label} "
-        right_fill = dash * max(0, BOX_W - 4 - len(side))
-        return f"  ┌─{side}{right_fill}┐"
+        right_fill = h_s * max(0, BOX_W - 4 - len(side))
+        return f"  {tl_s}{h_s}{side}{right_fill}{tr_s}"
 
     def step_row(text: str) -> str:
         visible_len = len(_strip_ansi(text))
         spaces = max(0, BOX_W - 4 - visible_len)
-        return f"  │  {text}{' ' * spaces}  │"
+        return f"  {v_s}  {text}{' ' * spaces}  {v_s}"
 
     def step_bot() -> str:
-        return f"  └{'─' * (BOX_W - 2)}┘"
+        return f"  {bl_s}{h_s * (BOX_W - 2)}{br_s}"
 
     try:
         # ── Welcome ──────────────────────────────────────────────────────────
         print()
-        print(box_line("", "═", "╔", "╗"))
+        print(box_line("", h_d, tl_d, tr_d))
         print(box_mid(f"{O}Welcome to Panther CLI v0.1.0{R}"))
         print(box_mid("Your AI-powered coding agent is ready."))
-        print(box_line("", "═", "╚", "╝"))
+        print(box_line("", h_d, bl_d, br_d))
         print()
         print(f"  {B}Let's get you set up. This takes about 30 seconds.{R}")
         print(f"  {B}(Press Ctrl+C at any time to skip){R}")
@@ -1647,7 +1786,7 @@ def _run_setup_survey(config: dict[str, Any], project_root: Path) -> None:
         print(step_row("What should Panther call you?"))
         print(step_bot())
         try:
-            raw_name = input("  Name: ").strip()
+            raw_name = _prompt_text("  Name: ").strip()
         except (EOFError, KeyboardInterrupt):
             raw_name = ""
         name = raw_name or "there"
@@ -1663,7 +1802,7 @@ def _run_setup_survey(config: dict[str, Any], project_root: Path) -> None:
         print(step_row(f"  {B}[4]{R} Skip for now         (use env vars later)"))
         print(step_bot())
         try:
-            choice_raw = input("  Choice [1-4]: ").strip()
+            choice_raw = _prompt_text("  Choice [1-4]: ").strip()
         except (EOFError, KeyboardInterrupt):
             choice_raw = "4"
         choice = choice_raw if choice_raw in ("1", "2", "3", "4") else "4"
@@ -1716,7 +1855,7 @@ def _run_setup_survey(config: dict[str, Any], project_root: Path) -> None:
                     print()
                     print(f"  {B}Base URL{R} (default: https://api.openai.com/v1):")
                     try:
-                        base_url = input("  URL: ").strip()
+                        base_url = _prompt_text("  URL: ").strip()
                     except (EOFError, KeyboardInterrupt):
                         base_url = ""
                     if not base_url:
@@ -1726,7 +1865,7 @@ def _run_setup_survey(config: dict[str, Any], project_root: Path) -> None:
                     print()
                     print(f"  {B}Model{R} (default: gpt-4o):")
                     try:
-                        api_model = input("  Model: ").strip()
+                        api_model = _prompt_text("  Model: ").strip()
                     except (EOFError, KeyboardInterrupt):
                         api_model = ""
                     if not api_model:
@@ -1738,10 +1877,10 @@ def _run_setup_survey(config: dict[str, Any], project_root: Path) -> None:
         # ── Step 3: Confirmation ──────────────────────────────────────────────
         print()
         print(step_top("Step 3 of 3: All done!"))
-        print(step_row(f"  {G}✓{R} Hello, {name}! Panther is ready."))
+        print(step_row(f"  {G}{tick}{R} Hello, {name}! Panther is ready."))
         if stored_key and provider_name != "local":
             model_hint = _active_model(config, code_mode=False, image_content=None)
-            print(step_row(f"  {G}✓{R} Provider: {provider_name} ({model_hint})"))
+            print(step_row(f"  {G}{tick}{R} Provider: {provider_name} ({model_hint})"))
             print(step_row(""))
             print(step_row(f"  Tip: Set {key_env_hint} env var to skip setup."))
         print(step_bot())
@@ -2864,13 +3003,19 @@ def _repl(
     try:
         while True:
             try:
-                task = (
-                    prompt_session.prompt(
-                        HTML(f"<ansiyellow><b>panther</b></ansiyellow> <ansiblue>({_active_provider(config)})</ansiblue> <b>›</b> ")
-                    )
-                    if prompt_session is not None
-                    else input("panther> ")
-                ).strip()
+                prompt_arrow = "›" if sys.stdout.encoding and "utf" in (sys.stdout.encoding or "").lower() else ">"
+                if prompt_session is not None:
+                    try:
+                        task = prompt_session.prompt(
+                            HTML(f"<ansiyellow><b>panther</b></ansiyellow> <ansiblue>({_active_provider(config)})</ansiblue> <b>{prompt_arrow}</b> ")
+                        ).strip()
+                    except (EOFError, KeyboardInterrupt):
+                        raise
+                    except Exception:
+                        prompt_session = None
+                        task = _prompt_text(f"panther ({_active_provider(config)}) > ").strip()
+                else:
+                    task = _prompt_text(f"panther ({_active_provider(config)}) > ").strip()
             except (EOFError, KeyboardInterrupt):
                 print()
                 return 0
@@ -3272,7 +3417,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _mysql_command(args, root)
         parser.print_help()
         return 0
-    except (ValueError, RuntimeError, OSError) as exc:
+    except Exception as exc:
         print(f"Panther error: {exc}", file=sys.stderr)
         return 1
 
