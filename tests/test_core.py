@@ -1762,7 +1762,7 @@ class CLITests(unittest.TestCase):
                     {},
                 )
             )
-            time.sleep(0.52)
+            time.sleep(0.65)
             dashboard.update(
                 AgentEvent(
                     "coding_plan_started",

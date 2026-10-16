@@ -327,8 +327,9 @@ def find_files(args: dict[str, Any], root: Path) -> dict[str, Any]:
         return _result(False, error="pattern and path must be strings")
     try:
         base = _project_path(root, directory)
+        root_resolved = root.resolve()
         matches = [
-            str(path.relative_to(root)).replace("\\", "/")
+            str(path.relative_to(root_resolved)).replace("\\", "/")
             for path in base.rglob(pattern)
             if path.is_file() and not any(part in IGNORED_PARTS for part in path.parts)
         ][:500]
@@ -472,6 +473,7 @@ def grep(args: dict[str, Any], root: Path) -> dict[str, Any]:
         return _result(False, error="path and glob must be strings")
     try:
         base = _project_path(root, search_path)
+        root_resolved = root.resolve()
         matcher = re.compile(pattern)
         matches: list[str] = []
         for path in ([base] if base.is_file() else base.rglob("*")):
@@ -482,7 +484,7 @@ def grep(args: dict[str, Any], root: Path) -> dict[str, Any]:
             try:
                 for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                     if matcher.search(line):
-                        matches.append(f"{path.relative_to(root)}:{line_no}:{line}")
+                        matches.append(f"{path.relative_to(root_resolved)}:{line_no}:{line}")
                         if len(matches) >= 100:
                             return _result(True, data="\n".join(matches))
             except (OSError, UnicodeError):

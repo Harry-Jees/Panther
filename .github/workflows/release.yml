@@ -6,28 +6,87 @@ on:
       - "v*"
 
 jobs:
-  test-and-build:
+  test-and-package:
+    name: Test & Package PyPI Wheel
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           cache: pip
-      - name: Install build tools
-        run: python -m pip install build
+      - name: Install build tools and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m pip install -e .
       - name: Run tests
         run: python -m unittest discover -s tests -v
       - name: Build Python distributions
         run: python -m build
+      - name: Upload PyPI distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/*
+
+  build-binaries:
+    name: Build Binary for ${{ matrix.os-name }} (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            os-name: Windows
+            arch: x64
+            artifact-pattern: dist/*.zip
+          - os: macos-latest
+            os-name: macOS
+            arch: arm64
+            artifact-pattern: dist/*.tar.gz
+          - os: macos-13
+            os-name: macOS
+            arch: x64
+            artifact-pattern: dist/*.tar.gz
+          - os: ubuntu-latest
+            os-name: Linux
+            arch: x64
+            artifact-pattern: dist/*.tar.gz
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[build]
+      - name: Build standalone executable
+        run: python scripts/build_executable.py
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.os-name }}-${{ matrix.arch }}
+          path: ${{ matrix.artifact-pattern }}
 
   create-release:
-    needs: test-and-build
+    needs: [test-and-package, build-binaries]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Create GitHub Release
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+      - name: Create GitHub Release with Standalone Binaries & Wheels
         uses: softprops/action-gh-release@v2
         with:
           body_path: .guide/CHANGELOG.md
           generate_release_notes: true
+          files: |
+            release-assets/**/*.zip
+            release-assets/**/*.tar.gz
+            release-assets/**/*.whl

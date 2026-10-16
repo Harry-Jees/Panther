@@ -1541,12 +1541,16 @@ def _nvidia_check(config: dict[str, Any], project_root: Path) -> int:
 
 
 def _openai_compatible_api_key(project_root: Path) -> str | None:
-    api_key = os.environ.get("OPENAI_COMPATIBLE_API_KEY")
-    if api_key and api_key.strip():
-        return api_key
+    for name in ("OPENAI_COMPATIBLE_API_KEY", "OPENAI_API_KEY"):
+        api_key = os.environ.get(name)
+        if api_key and api_key.strip():
+            return api_key.strip()
     values = dotenv_values(project_root / ".env")
-    api_key = values.get("OPENAI_COMPATIBLE_API_KEY")
-    return api_key if isinstance(api_key, str) else None
+    for name in ("OPENAI_COMPATIBLE_API_KEY", "OPENAI_API_KEY"):
+        api_key = values.get(name)
+        if isinstance(api_key, str) and api_key.strip():
+            return api_key.strip()
+    return None
 
 
 def _gemini_env_api_key(project_root: Path) -> str | None:
@@ -1584,9 +1588,11 @@ def _openai_compatible_provider(
     config: dict[str, Any],
     project_root: Path,
 ) -> OpenAICompatibleProvider:
+    base_url = config.get("apiBaseUrl") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    model = config.get("apiModel") or os.environ.get("OPENAI_MODEL", "gpt-4o")
     return OpenAICompatibleProvider(
-        config["apiModel"],
-        config["apiBaseUrl"],
+        model,
+        base_url,
         api_key=_openai_compatible_api_key(project_root),
     )
 
@@ -1602,7 +1608,7 @@ def _bot_api_key(name: str, provider: str, project_root: Path) -> str:
     env_names = {
         "nvidia": ("NVIDIA_API_KEY",),
         "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
-        "openai-compatible": ("OPENAI_COMPATIBLE_API_KEY",),
+        "openai-compatible": ("OPENAI_COMPATIBLE_API_KEY", "OPENAI_API_KEY"),
     }
     for env_name in env_names[provider]:
         value = os.environ.get(env_name)
@@ -1651,9 +1657,10 @@ def _remote_provider(
     model: str,
     project_root: Path,
 ) -> NvidiaProvider | GeminiProvider | OpenAICompatibleProvider:
-    if config["activeProvider"] == "nvidia":
+    provider = _active_provider(config)
+    if provider == "nvidia":
         return _nvidia_provider(model, project_root)
-    if config["activeProvider"] == "gemini":
+    if provider == "gemini":
         key = _gemini_api_key(project_root)
         if not isinstance(key, str) or not key.strip():
             raise RuntimeError(
@@ -1668,7 +1675,15 @@ def _active_provider(config: dict[str, Any]) -> str:
     active_bot = config.get("activeBot")
     if active_bot:
         return config["bots"][active_bot]["provider"]
-    return config["activeProvider"]
+    provider = config.get("activeProvider", "local")
+    if provider == "local":
+        if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+            return "gemini"
+        if os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAI_COMPATIBLE_API_KEY"):
+            return "openai-compatible"
+        if os.environ.get("NVIDIA_API_KEY"):
+            return "nvidia"
+    return provider
 
 
 def _active_model(
@@ -1680,9 +1695,11 @@ def _active_model(
     active_bot = config.get("activeBot")
     if active_bot:
         return config["bots"][active_bot]["model"]
-    provider = config["activeProvider"]
+    provider = _active_provider(config)
     if provider == "openai-compatible":
-        return config["apiModel"]
+        return config.get("apiModel") or os.environ.get("OPENAI_MODEL", "gpt-4o")
+    if provider == "gemini":
+        return "gemini-2.5-flash"
     if image_content is not None:
         return config["visionModel"]
     return config["codeModel"] if code_mode else config["remoteModel"]
@@ -2030,6 +2047,13 @@ def _execute_task(
     if image_content is not None and active_provider == "local":
         raise RuntimeError("Image understanding requires a configured remote provider.")
     if active_provider == "local":
+        try:
+            import_module("llama_cpp")
+        except ImportError as exc:
+            raise RuntimeError(
+                "Local inference requires the optional 'llama-cpp-python' dependency. "
+                "Install it with 'pip install panther-cli[local]' or choose a remote provider."
+            ) from exc
         if not json_output:
             print("Checking for local model...", file=sys.stderr)
         model_file = ensure_model(config["modelTier"], None if json_output else _progress)
@@ -2687,6 +2711,13 @@ def _repl(
                         if callable(close):
                             close()
                     if active_provider == "local":
+                        try:
+                            import_module("llama_cpp")
+                        except ImportError as exc:
+                            raise RuntimeError(
+                                "Local inference requires the optional 'llama-cpp-python' dependency. "
+                                "Install it with 'pip install panther-cli[local]' or choose a remote provider."
+                            ) from exc
                         model_file = ensure_model(config["modelTier"], _progress)
                         provider = LocalProvider(
                             str(model_file),
@@ -2726,7 +2757,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--no-banner", action="store_true", help="Hide the interactive startup banner"
     )
     _add_commands(parser)
-    args = parser.parse_args(argv)
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    subcommands = {
+        "run", "analyze", "config", "model", "session", "index",
+        "skills", "mysql", "auth", "bot", "setup", "nvidia",
+    }
+    if raw_args and raw_args[0] not in subcommands and not raw_args[0].startswith("-"):
+        raw_args.insert(0, "run")
+    args = parser.parse_args(raw_args)
     root = Path.cwd().resolve()
     try:
         if args.command is None:

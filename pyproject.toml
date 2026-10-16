@@ -13,6 +13,7 @@ license = { text = "ISC" }
 dependencies = ["keyring>=25.0", "python-dotenv>=1.0", "prompt-toolkit>=3.0.43"]
 
 [project.optional-dependencies]
+build = ["pyinstaller>=6.5.0"]
 local = ["llama-cpp-python>=0.3.0"]
 mysql = ["mysql-connector-python>=9.2"]
 
