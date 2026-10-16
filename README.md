@@ -2,28 +2,98 @@
 
 Panther is a local-first coding agent distributed as a Python package. Its CLI,
 agent loop, tools, configuration, and session storage are Python-only; it does
-not require Node.js or a separately installed local model server.
+not require Node.js or a separately installed local model server. Use it just
+like Kiro, GitHub Copilot, or any modern AI coding agent — straight from your
+terminal.
 
 > **Status:** Pre-alpha. The Python runtime supports local GGUF inference,
 > named NVIDIA NIM, Google Gemini, and OpenAI-compatible API bots, plus core
 > file/command tools. Vector embeddings and the full spec workflow are not yet
 > available.
 
-## Install
+---
 
-Use Python 3.10 or newer. A virtual environment is not required; install
-Panther into the Python installation you intend to use:
+## Quick Start
+
+### Option A — Download a prebuilt binary (no Python required)
+
+Download the latest binary for your platform from the
+[GitHub Releases](../../releases/latest) page:
+
+| Platform | File |
+|----------|------|
+| Windows x64 | `panther-windows-x64.zip` → extract → run `panther.exe` |
+| macOS arm64 (Apple Silicon) | `panther-macos-arm64.tar.gz` → extract → run `./panther` |
+| macOS x64 (Intel) | `panther-macos-x64.tar.gz` → extract → run `./panther` |
+| Linux x64 | `panther-linux-x64.tar.gz` → extract → run `./panther` |
+
+Set an API key and start immediately — no Python install needed:
 
 ```bash
-python -m pip install panther-cli
+# Pick your provider and set the environment variable:
+export GEMINI_API_KEY=your-key       # Google Gemini
+export OPENAI_API_KEY=your-key       # OpenAI or any OpenAI-compatible API
+export NVIDIA_API_KEY=your-key       # NVIDIA NIM
+
+# One-shot task (like "kiro run"):
+panther "Explain what this codebase does"
+
+# Or start the interactive REPL:
+panther
 ```
 
-For a checkout that has not been published to PyPI, install the local package
-in editable mode instead:
+On Windows (PowerShell):
+```powershell
+$env:GEMINI_API_KEY = "your-key"
+.\panther.exe "Fix the bug in main.py"
+.\panther.exe   # interactive REPL
+```
+
+### Option B — Install via pip
 
 ```bash
-python -m pip install -e .
+pip install panther-cli
+
+# Same commands work — use panther or python -m panther
+panther "Add unit tests for the parser module"
+panther
 ```
+
+## Install (from PyPI)
+
+Use Python 3.10 or newer:
+
+```bash
+pip install panther-cli
+```
+
+For a checkout not yet published to PyPI, install in editable mode:
+
+```bash
+pip install -e .
+```
+
+For local GGUF inference (requires a C++ compiler):
+
+```bash
+pip install "panther-cli[local]"
+```
+
+### Build the standalone binary locally
+
+To create a self-contained `panther.exe` (Windows) or `panther` binary (Mac/Linux)
+that runs without Python installed:
+
+```bash
+pip install "panther-cli[build]"   # installs PyInstaller
+python scripts/build_executable.py
+# Output: dist/panther.exe  (or dist/panther on Mac/Linux)
+# Archive: dist/panther-<os>-<arch>.zip  (or .tar.gz)
+```
+
+The [GitHub Actions CI](.github/workflows/build-binaries.yml) builds all four
+platform binaries automatically on every push to `main` and every `v*` tag,
+attaching them to the GitHub Release.
 
 ## Configure a named API bot
 
